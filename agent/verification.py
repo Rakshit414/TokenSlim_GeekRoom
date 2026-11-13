@@ -25,6 +25,26 @@ class TestExecutionResult(BaseModel):
     timed_out: bool = False
     cancelled: bool = False
 
+def kill_process_tree(pid: int):
+    """Safely terminate a process and all its child processes to prevent process leakage."""
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                f"taskkill /F /T /PID {pid}",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5.0
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            import signal
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except Exception:
+            pass
+
 class TestRunner:
     __test__ = False
     def __init__(
@@ -38,6 +58,18 @@ class TestRunner:
         self.python_executable = python_executable or sys.executable
         self.default_timeout_seconds = default_timeout_seconds
         self.max_log_chars = max_log_chars
+        self._active_process: Optional[subprocess.Popen] = None
+        self._cancelled: bool = False
+
+    def cancel_active(self):
+        """Signal cancellation and terminate any running test process tree immediately."""
+        self._cancelled = True
+        if self._active_process and self._active_process.poll() is None:
+            kill_process_tree(self._active_process.pid)
+            try:
+                self._active_process.kill()
+            except Exception:
+                pass
 
     def run_tests(
         self,
@@ -57,7 +89,19 @@ class TestRunner:
             cmd = f'"{self.python_executable}" -m pytest -v'
 
         start_time = time.time()
-        process = None
+        self._active_process = None
+
+        if self._cancelled:
+            return TestExecutionResult(
+                command=cmd,
+                exit_code=-3,
+                passed=False,
+                duration_seconds=0.0,
+                concise_summary="Test execution cancelled prior to launch.",
+                executed=False,
+                timed_out=False,
+                cancelled=True
+            )
 
         try:
             # Run in workspace directory with isolated environment
@@ -74,10 +118,24 @@ class TestRunner:
                 text=True,
                 env=env
             )
+            self._active_process = process
 
             stdout, stderr = process.communicate(timeout=timeout_sec)
             elapsed = time.time() - start_time
             exit_code = process.returncode
+            self._active_process = None
+
+            if self._cancelled:
+                return TestExecutionResult(
+                    command=cmd,
+                    exit_code=-3,
+                    passed=False,
+                    duration_seconds=elapsed,
+                    concise_summary="Test execution cancelled during run.",
+                    executed=True,
+                    timed_out=False,
+                    cancelled=True
+                )
 
             combined_output = (stdout or "") + ("\n" + stderr if stderr else "")
             failing_tests, traceback_excerpt, summary = self._extract_concise_failure(combined_output, exit_code)
@@ -98,8 +156,13 @@ class TestRunner:
 
         except subprocess.TimeoutExpired:
             if process:
-                process.kill()
-                process.communicate()
+                kill_process_tree(process.pid)
+                try:
+                    process.kill()
+                    process.communicate()
+                except Exception:
+                    pass
+            self._active_process = None
             elapsed = time.time() - start_time
             return TestExecutionResult(
                 command=cmd,

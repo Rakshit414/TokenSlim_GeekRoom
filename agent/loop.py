@@ -58,11 +58,49 @@ class AutonomousCodingLoop:
         self.mock_patch_generator = mock_patch_generator
 
         self._cancelled = False
+        self._test_runner: Optional[TestRunner] = None
         self.events: List[Dict[str, Any]] = []
 
     def cancel(self):
-        """Signal cancellation to abort active execution loop."""
+        """Signal cancellation to abort active execution loop and terminate running test processes."""
         self._cancelled = True
+        if self._test_runner:
+            self._test_runner.cancel_active()
+
+    def _check_task_already_satisfied(self, repo_map: RepositoryMap, baseline_passed: bool) -> Tuple[bool, str]:
+        """Check whether the requested task is already satisfied or if changes are required."""
+        if not baseline_passed:
+            return False, "Baseline tests failed. Repair required."
+
+        # Parse requested function or class names from task directive
+        # Common patterns: "add function foo", "implement bar", "create class Baz", "def foo"
+        import re
+        tokens = re.findall(r"(?:function|def|class|method|implement|add)\s+([A-Za-z_][A-Za-z0-9_]*)", self.task_directive, re.IGNORECASE)
+        
+        for sym in tokens:
+            sym_clean = sym.strip()
+            if sym_clean.lower() in ("a", "an", "the", "new", "method", "function", "class", "feature"):
+                continue
+            matches = repo_map.find_symbol(sym_clean)
+            if not matches:
+                return False, f"Existing tests pass, but requested symbol '{sym_clean}' is not present in repository. Proceeding with implementation."
+
+        # Also check if directive mentions "add" or "implement" or "feature" without specific keyword
+        if re.search(r"\b(add|implement|create|new|feature|extend)\b", self.task_directive, re.IGNORECASE):
+            # Check if there is an explicit request for something not yet present
+            # Default to continuing implementation unless we have positive proof of satisfaction
+            words = re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", self.task_directive)
+            missing_targets = []
+            for w in words:
+                if w.lower() in ("add", "implement", "create", "function", "class", "feature", "code", "repo", "test", "tests"):
+                    continue
+                # If word looks like a python identifier and not found in any file
+                if not repo_map.find_symbol(w) and not any(w.lower() in p.lower() for p in repo_map.files):
+                    missing_targets.append(w)
+            if missing_targets and len(missing_targets) <= 3:
+                return False, f"Existing tests pass, but requested target(s) {missing_targets} are missing. Continuing implementation."
+
+        return True, "All requested symbols exist and existing tests pass."
 
     def _record_event(self, event_type: str, message: str, payload: Optional[Dict[str, Any]] = None):
         """Record and broadcast an execution telemetry event."""
@@ -104,13 +142,20 @@ class AutonomousCodingLoop:
 
         patch_engine = PatchEngine(str(self.workspace_dir))
         test_runner = TestRunner(str(self.workspace_dir))
+        self._test_runner = test_runner
 
         total_tokens = 0
         provider_reported_tokens_total: Optional[int] = None
         is_simulated = False
         applied_diffs: List[str] = []
 
-        # 1. Baseline Test Run
+        # 1. Repository Scan
+        self._record_event("repo_scan", "Scanning repository structure with AST...")
+        scanner = RepositoryScanner(str(self.workspace_dir))
+        repo_map = scanner.scan()
+        self._record_event("repo_scan_complete", f"Repository map ready: {repo_map.total_files} files, {repo_map.total_lines} lines.")
+
+        # 2. Baseline Test Run
         self._record_event("test_baseline", "Executing baseline tests to establish initial state...")
         baseline_res = test_runner.run_tests(test_command=self.test_command)
         baseline_passed = baseline_res.passed
@@ -119,9 +164,10 @@ class AutonomousCodingLoop:
             "failing_tests": baseline_res.failing_tests
         })
 
-        if baseline_passed:
-            # Code is already passing tests
-            self._record_event("finish", "Baseline tests already pass. No repair required.")
+        # Check whether task is already satisfied
+        task_satisfied, satisfaction_reason = self._check_task_already_satisfied(repo_map, baseline_passed)
+        if task_satisfied:
+            self._record_event("finish", f"Task verified: {satisfaction_reason}")
             return ExecutionSummary(
                 run_id=self.run_id,
                 status="COMPLETED_VERIFIED",
@@ -132,14 +178,10 @@ class AutonomousCodingLoop:
                 is_simulated=is_simulated,
                 wall_clock_seconds=time.time() - start_time,
                 events_log=self.events,
-                final_message="Repository tests pass initially."
+                final_message=satisfaction_reason
             )
-
-        # 2. Repository Scan
-        self._record_event("repo_scan", "Scanning repository structure with AST...")
-        scanner = RepositoryScanner(str(self.workspace_dir))
-        repo_map = scanner.scan()
-        self._record_event("repo_scan_complete", f"Repository map ready: {repo_map.total_files} files, {repo_map.total_lines} lines.")
+        elif baseline_passed:
+            self._record_event("task_unfulfilled", f"{satisfaction_reason}")
 
         # 3. Context Selection
         retriever = ContextRetriever(repo_map, max_tokens=min(4000, self.token_budget // 2))
@@ -311,10 +353,13 @@ class AutonomousCodingLoop:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("""
-                UPDATE runs
-                SET status = ?, diff_text = ?, completed_at = datetime('now')
-                WHERE run_id = ?
-            """, (status, "\n".join(diffs), self.run_id))
+                INSERT INTO runs (run_id, status, configuration, repo_path, prompt, diff_text, created_at, completed_at)
+                VALUES (?, ?, 'autonomous_loop', ?, ?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(run_id) DO UPDATE SET
+                    status = excluded.status,
+                    diff_text = excluded.diff_text,
+                    completed_at = datetime('now')
+            """, (self.run_id, status, str(self.workspace_dir), self.task_directive, "\n".join(diffs)))
             conn.commit()
             conn.close()
         except Exception:

@@ -201,3 +201,165 @@ def test_patch_rejection_feedback(defect_repo):
     assert summary.iterations_count == 2
     # Verify iteration 2 received error from iteration 1
     assert "Ambiguous replacement" in attempt_errors[1]
+
+def test_baseline_pass_but_feature_missing(tmp_path):
+    """Verify that agent continues implementation when baseline tests pass but a requested feature is missing."""
+    init_db()
+    # Math library with only add
+    (tmp_path / "math_lib.py").write_text("def add(a, b): return a + b\n", encoding="utf-8")
+    (tmp_path / "test_math.py").write_text("from math_lib import add\ndef test_add(): assert add(1, 2) == 3\n", encoding="utf-8")
+
+    def mock_patch(iter_idx, failure_summary, patch_err):
+        return '''FILE: math_lib.py
+<<<<<<< SEARCH
+def add(a, b): return a + b
+=======
+def add(a, b): return a + b
+
+def power(base, exp): return base ** exp
+>>>>>>> REPLACE'''
+
+    loop = AutonomousCodingLoop(
+        workspace_dir=str(tmp_path),
+        task_directive="Add function power(base, exp) to math_lib.py",
+        mock_patch_generator=mock_patch,
+        test_command=f'"{sys.executable}" -m pytest -v'
+    )
+    summary = loop.run()
+
+    # Did NOT exit early at baseline; applied patch and completed
+    assert summary.baseline_test_passed is True
+    assert summary.applied_patches_count == 1
+    assert summary.status == "COMPLETED_VERIFIED"
+    assert "power" in (tmp_path / "math_lib.py").read_text(encoding="utf-8")
+
+def test_baseline_pass_and_task_already_implemented(tmp_path):
+    """Verify that agent exits cleanly without redundant edits when requested feature is already implemented."""
+    init_db()
+    (tmp_path / "math_lib.py").write_text("def add(a, b): return a + b\ndef power(base, exp): return base ** exp\n", encoding="utf-8")
+    (tmp_path / "test_math.py").write_text("from math_lib import add, power\ndef test_all(): assert add(1, 2) == 3; assert power(2, 3) == 8\n", encoding="utf-8")
+
+    loop = AutonomousCodingLoop(
+        workspace_dir=str(tmp_path),
+        task_directive="Verify function power in math_lib.py",
+        test_command=f'"{sys.executable}" -m pytest -v'
+    )
+    summary = loop.run()
+
+    assert summary.baseline_test_passed is True
+    assert summary.applied_patches_count == 0  # No redundant edits
+    assert summary.status == "COMPLETED_VERIFIED"
+    assert summary.iterations_count == 0
+
+def test_time_budget_exhaustion(defect_repo):
+    """Verify timeout exhaustion when execution exceeds time_limit_seconds."""
+    init_db()
+
+    def slow_patch(iter_idx, failure_summary, patch_err):
+        time.sleep(0.3)
+        return "invalid"
+
+    loop = AutonomousCodingLoop(
+        workspace_dir=str(defect_repo),
+        task_directive="Fix divide bug",
+        mock_patch_generator=slow_patch,
+        time_limit_seconds=0.1,  # Short timeout
+        test_command=f'"{sys.executable}" -m pytest -v'
+    )
+    summary = loop.run()
+    assert summary.status == "TIMEOUT_EXCEEDED"
+
+def test_bifrost_gateway_failure(defect_repo):
+    """Verify clean handling and error event when Bifrost gateway fails."""
+    init_db()
+    # Configure Bifrost client with unresolvable host and fallback_mock disabled
+    broken_client = BifrostClient(base_url="http://invalid.gateway.local:9999/v1", timeout=0.2)
+
+    loop = AutonomousCodingLoop(
+        workspace_dir=str(defect_repo),
+        task_directive="Fix divide bug",
+        bifrost_client=broken_client,
+        test_command=f'"{sys.executable}" -m pytest -v'
+    )
+    # The BifrostClient will raise ConnectionError if fallback_mock is not passed, but chat_completion defaults fallback_mock=True.
+    # Let's test client handling when chat_completion raises an unexpected API error
+    broken_client.chat_completion = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("502 Bad Gateway from Bifrost"))
+
+    summary = loop.run()
+    assert summary.status == "FAILED"
+    assert "502 Bad Gateway" in summary.final_message
+
+def test_sqlite_persistence_and_event_ordering(defect_repo):
+    """Verify run status persistence in SQLite and chronological event ordering."""
+    init_db()
+    run_id = f"test_run_persist_{int(time.time())}"
+
+    def mock_patch(iter_idx, failure_summary, patch_err):
+        return '''FILE: calculator.py
+<<<<<<< SEARCH
+def divide(a: int, b: int) -> float:
+    # Operation
+    # Deliberate bug: returns 0 instead of division
+    return 0.0
+=======
+def divide(a: int, b: int) -> float:
+    return a / b
+>>>>>>> REPLACE'''
+
+    loop = AutonomousCodingLoop(
+        workspace_dir=str(defect_repo),
+        task_directive="Fix divide function",
+        mock_patch_generator=mock_patch,
+        test_command=f'"{sys.executable}" -m pytest -v',
+        run_id=run_id
+    )
+    summary = loop.run()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    # Verify run record in runs table
+    row = cursor.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    assert row is not None
+    assert row["status"] == "COMPLETED_VERIFIED"
+    assert "calculator.py" in row["diff_text"]
+
+    # Verify event ordering
+    events = cursor.execute("SELECT event_type FROM run_events WHERE run_id = ? ORDER BY id ASC", (run_id,)).fetchall()
+    event_types = [e[0] for e in events]
+    assert len(event_types) >= 4
+    assert event_types[0] == "start"
+    assert "repo_scan" in event_types
+    assert "test_baseline" in event_types
+    assert event_types[-1] == "finish"
+    conn.close()
+
+def test_cancellation_during_active_test(tmp_path):
+    """Verify that cancellation reliably terminates an active test subprocess without leakage."""
+    init_db()
+    # Long running test
+    (tmp_path / "test_long.py").write_text("import time\ndef test_sleep(): time.sleep(10)\n", encoding="utf-8")
+
+    import threading
+
+    loop = AutonomousCodingLoop(
+        workspace_dir=str(tmp_path),
+        task_directive="Run tests",
+        test_command=f'"{sys.executable}" -m pytest -v'
+    )
+
+    def cancel_after_delay():
+        time.sleep(0.4)
+        loop.cancel()
+
+    thread = threading.Thread(target=cancel_after_delay)
+    thread.start()
+
+    start_t = time.time()
+    summary = loop.run()
+    elapsed = time.time() - start_t
+    thread.join()
+
+    # Must finish well before the 10 second sleep
+    assert elapsed < 5.0
+    assert summary.status == "CANCELLED"
+
