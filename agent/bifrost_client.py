@@ -9,14 +9,23 @@ from openai import OpenAI, APIConnectionError, AuthenticationError
 from pydantic import BaseModel
 
 class BifrostUsage(BaseModel):
+    # Provider-reported tokens (None if simulated / offline)
+    provider_reported_input_tokens: Optional[int] = None
+    provider_reported_output_tokens: Optional[int] = None
+    provider_reported_total_tokens: Optional[int] = None
+    
+    # Token counts for tracking (explicitly labeled if simulated)
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    
     model: str = ""
-    latency_seconds: float = 0.0
+    latency_seconds: Optional[float] = None
     estimated_cost: Optional[float] = None
     gateway_connected: bool = True
     provider: Optional[str] = "bifrost"
+    is_simulated: bool = False
+    simulation_note: Optional[str] = None
 
 class BifrostClient:
     def __init__(
@@ -72,14 +81,22 @@ class BifrostClient:
             elapsed = time.time() - start_time
             content = response.choices[0].message.content or ""
 
+            prompt_toks = response.usage.prompt_tokens if response.usage else 0
+            compl_toks = response.usage.completion_tokens if response.usage else 0
+            total_toks = response.usage.total_tokens if response.usage else 0
+
             usage = BifrostUsage(
-                input_tokens=response.usage.prompt_tokens if response.usage else 0,
-                output_tokens=response.usage.completion_tokens if response.usage else 0,
-                total_tokens=response.usage.total_tokens if response.usage else 0,
+                provider_reported_input_tokens=prompt_toks,
+                provider_reported_output_tokens=compl_toks,
+                provider_reported_total_tokens=total_toks,
+                input_tokens=prompt_toks,
+                output_tokens=compl_toks,
+                total_tokens=total_toks,
                 model=response.model or target_model,
                 latency_seconds=elapsed,
                 gateway_connected=True,
-                provider="bifrost"
+                provider="bifrost",
+                is_simulated=False
             )
             return content, usage
 
@@ -88,14 +105,22 @@ class BifrostClient:
             if fallback_mock:
                 # Return deterministic mock payload for offline/preflight testing without failing build
                 mock_content = f"// [OFFLINE BIFROST SIMULATION]\n// Proposed minimal patch for {target_model}"
+                est_in = sum(len(m.get("content", "")) // 4 for m in messages)
+                est_out = len(mock_content) // 4
                 usage = BifrostUsage(
-                    input_tokens=sum(len(m.get("content", "")) // 4 for m in messages),
-                    output_tokens=len(mock_content) // 4,
-                    total_tokens=(sum(len(m.get("content", "")) // 4 for m in messages)) + (len(mock_content) // 4),
-                    model=f"{target_model} (mock-offline)",
-                    latency_seconds=elapsed,
+                    provider_reported_input_tokens=None,
+                    provider_reported_output_tokens=None,
+                    provider_reported_total_tokens=None,
+                    input_tokens=est_in,
+                    output_tokens=est_out,
+                    total_tokens=est_in + est_out,
+                    model=f"{target_model} (simulated-offline)",
+                    latency_seconds=None,  # Latency unavailable for real provider
+                    estimated_cost=None,    # Cost unavailable for simulation
                     gateway_connected=False,
-                    provider="mock-fallback"
+                    provider="simulated-offline",
+                    is_simulated=True,
+                    simulation_note="Simulated response: Bifrost gateway offline or connection refused. Not a provider measurement."
                 )
                 return mock_content, usage
             raise conn_err

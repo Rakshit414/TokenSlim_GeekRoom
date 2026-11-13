@@ -47,11 +47,11 @@ async def health_check():
     bifrost_url = os.getenv("BIFROST_BASE_URL", "http://localhost:8080/v1")
     tavily_key = os.getenv("TAVILY_API_KEY", "")
 
-    # Test Bifrost configuration & status
-    bifrost_status = "configured" if bifrost_url else "unconfigured"
-    bifrost_detail = f"Endpoint configured: {bifrost_url}"
-    # If explicitly running live checks, probe socket
-    if os.getenv("PROBE_BIFROST_LIVE", "0") == "1":
+    # Bifrost status: configured | reachable | unreachable | not_verified
+    if not bifrost_url:
+        bifrost_status = "unconfigured"
+        bifrost_detail = "BIFROST_BASE_URL is not set"
+    elif os.getenv("PROBE_BIFROST_LIVE", "0") == "1":
         try:
             from urllib.parse import urlparse
             import socket
@@ -62,20 +62,46 @@ async def health_check():
                 bifrost_status = "reachable"
                 bifrost_detail = f"Connected to {host}:{port}"
         except Exception as e:
-            bifrost_status = "offline"
-            bifrost_detail = f"Gateway offline: {e}"
+            bifrost_status = "unreachable"
+            bifrost_detail = f"Connection failed: {e}"
+    else:
+        # Avoid blocking network probes in offline / sandboxed test mode
+        bifrost_status = "not_verified"
+        bifrost_detail = f"Configured endpoint {bifrost_url}; live network probe disabled (PROBE_BIFROST_LIVE!=1)"
 
-    # Test Tavily configuration
-    tavily_status = "configured" if bool(tavily_key) else "missing_api_key"
+    # Tavily status: configured | reachable | unreachable | not_verified
+    if not tavily_key or not tavily_key.strip():
+        tavily_status = "unconfigured"
+        tavily_detail = "TAVILY_API_KEY is not set"
+    elif os.getenv("PROBE_TAVILY_LIVE", "0") == "1":
+        try:
+            import httpx
+            # Simple probe
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get("https://api.tavily.com")
+                if resp.status_code < 500:
+                    tavily_status = "reachable"
+                    tavily_detail = "Tavily API endpoint reached"
+                else:
+                    tavily_status = "unreachable"
+                    tavily_detail = f"Tavily returned HTTP {resp.status_code}"
+        except Exception as e:
+            tavily_status = "unreachable"
+            tavily_detail = f"Tavily connection failed: {e}"
+    else:
+        tavily_status = "not_verified"
+        tavily_detail = "TAVILY_API_KEY present; live network probe disabled (PROBE_TAVILY_LIVE!=1)"
 
-    # Test SQLite DB
-    db_status = "healthy"
+    # SQLite status: available | unavailable
+    db_status = "available"
+    db_detail = "SQLite connection operational"
     try:
         conn = get_connection()
         conn.execute("SELECT 1").fetchone()
         conn.close()
     except Exception as e:
-        db_status = f"error: {e}"
+        db_status = "unavailable"
+        db_detail = f"SQLite failure: {e}"
 
     return HealthResponse(
         status="ok",
@@ -88,10 +114,12 @@ async def health_check():
         },
         tavily={
             "status": tavily_status,
-            "configured": bool(tavily_key)
+            "detail": tavily_detail,
+            "configured": bool(tavily_key and tavily_key.strip())
         },
         database={
-            "status": db_status
+            "status": db_status,
+            "detail": db_detail
         },
         environment=os.getenv("ENVIRONMENT", "development")
     )

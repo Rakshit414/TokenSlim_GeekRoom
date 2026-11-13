@@ -1,5 +1,7 @@
 services:
   # Bifrost AI / LLM Gateway Service
+  # NOTE: Image tag 'latest' is currently configured for initial discovery.
+  # Flagged as non-reproducible; will be pinned to a validated release digest upon live gateway testing.
   bifrost:
     image: maximhq/bifrost:latest
     container_name: tokenslim-bifrost

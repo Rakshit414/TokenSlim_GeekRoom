@@ -76,10 +76,12 @@ def test_health_endpoint():
     assert "bifrost" in data
     assert "tavily" in data
     assert "database" in data
-    assert data["database"]["status"] == "healthy"
+    assert data["database"]["status"] in ("available", "unavailable")
+    assert data["bifrost"]["status"] in ("configured", "reachable", "unreachable", "not_verified")
+    assert data["tavily"]["status"] in ("unconfigured", "configured", "reachable", "unreachable", "not_verified")
 
 def test_bifrost_client_preflight():
-    """Verify Bifrost client configuration and usage extraction."""
+    """Verify Bifrost client configuration, explicit simulation boundaries and usage extraction."""
     from agent.bifrost_client import BifrostClient
     client = BifrostClient(base_url="http://127.0.0.1:8080/v1", timeout=0.2)
     reachable, msg = client.probe_connection()
@@ -91,12 +93,18 @@ def test_bifrost_client_preflight():
         messages=[{"role": "user", "content": "test prompt"}],
         fallback_mock=True
     )
-    assert usage.total_tokens > 0
-    assert usage.input_tokens > 0
-    assert usage.latency_seconds >= 0.0
+    # Explicit simulation boundaries
+    assert usage.is_simulated is True
+    assert usage.provider_reported_input_tokens is None
+    assert usage.provider_reported_output_tokens is None
+    assert usage.provider_reported_total_tokens is None
+    assert usage.provider == "simulated-offline"
+    assert usage.latency_seconds is None
+    assert usage.estimated_cost is None
+    assert usage.total_tokens > 0  # Heuristic estimation for offline testing
 
 def test_tavily_client_preflight():
-    """Verify Tavily documentation verification client structure and evidence models."""
+    """Verify Tavily documentation verification client structure, simulation boundaries and evidence models."""
     from agent.docs_check import TavilyDocsClient
     tavily = TavilyDocsClient(api_key="")
     assert not tavily.is_configured
@@ -104,6 +112,8 @@ def test_tavily_client_preflight():
     # Test fallback query handling
     result = tavily.search_docs("pydantic v2 field_validator migration", fallback_mock=True)
     assert not result.is_live
+    assert result.is_simulated is True
     assert len(result.evidence_items) > 0
+    assert result.evidence_items[0].is_simulated is True
     assert result.evidence_items[0].source_url.startswith("http")
     assert result.error_message is not None

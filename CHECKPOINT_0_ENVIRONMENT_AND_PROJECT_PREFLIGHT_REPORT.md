@@ -5,11 +5,16 @@
 ---
 
 ### 1. Checkpoint Information
-- **Checkpoint Number & Name:** Checkpoint 0: Environment and Project Preflight
-- **Date & Time:** 2026-11-13 14:06:00 UTC (19:36:00 Local)
+- **Checkpoint Number & Name:** Checkpoint 0: Environment and Project Preflight (Post-Correction)
+- **Date & Time:** 2026-11-13 14:26:00 UTC (19:56:00 Local)
 - **Current Git Branch:** `main`
-- **Latest Commit Hash:** `1585f72`
-- **Overall Checkpoint Status:** **PASSED (Green)**
+- **Verified Commit Hash:** `0a39e72` (Codebase: `1585f72`; Report addition: `0a39e72`)
+- **Git History Discrepancy Reconciliation:**
+  - `e07fb5e`: Initial root commit with `.gitignore`.
+  - `1585f72`: Checkpoint 0 codebase implementation (all code, tests, and configuration assets).
+  - `0a39e72`: Checkpoint 0 report document addition (`CHECKPOINT_0_ENVIRONMENT_AND_PROJECT_PREFLIGHT_REPORT.md`).
+  - *Explanation:* The initial summary cited HEAD commit `0a39e72` while the report internal text recorded pre-commit hash `1585f72`. Both represent clean, un-rewritten linear commits. HEAD is verified at `0a39e72`.
+- **Overall Checkpoint Status:** **PASSED (Green with Part A Corrections Applied)**
 
 ---
 
@@ -47,10 +52,13 @@ Establish the foundational infrastructure and runtime environment for TokenSlim.
   - Dual-panel workspace: Task directive input + execution parameters, side-by-side with dark navy live execution terminal and dedicated Tavily Stale-Answer Evidence Inspector.
 - Created `server/static/app.js` handling client SSE connections, real-time terminal logging, and structured stale-answer evidence rendering.
 
-#### C. Backend API & Gateway Integration
+#### C. Backend API & Gateway Integration (Simulation Boundaries Explicit)
 - Implemented `server/app.py` with FastAPI endpoints:
   - `GET /` — Serves the frontend single-page application.
-  - `GET /api/health` — Returns comprehensive system status (Bifrost endpoint reachability, Tavily configuration, database connectivity).
+  - `GET /api/health` — Distinguishes four explicit service states:
+    - Bifrost: `configured`, `reachable`, `unreachable`, or `not_verified` (probes disabled in offline/sandbox mode).
+    - Tavily: `configured`, `reachable`, `unreachable`, or `not_verified`.
+    - SQLite: `available` or `unavailable`.
   - `POST /api/runs` — Queues autonomous agent runs.
   - `GET /api/runs/{run_id}` — Retrieves run metadata and token metrics.
   - `GET /api/runs/{run_id}/events` — Server-Sent Events (SSE) telemetry stream.
@@ -58,12 +66,12 @@ Establish the foundational infrastructure and runtime environment for TokenSlim.
   - `GET /api/benchmarks` & `GET /api/traces` & `GET /api/stale-detections` — Analytics endpoints.
 - Implemented `agent/bifrost_client.py`:
   - Configures OpenAI-compatible client routed to `BIFROST_BASE_URL`.
-  - Captures exact input tokens, output tokens, total tokens, latency, and provider attribution.
-  - Includes offline fallback simulation to permit test suites and offline verification without crashing when the gateway is offline.
+  - Captures exact input tokens, output tokens, total tokens, latency, and provider attribution when connected.
+  - **Explicit Simulation Boundary:** When offline or unconfigured, simulated fallback explicitly marks `is_simulated = True`, leaves `provider_reported_input_tokens = None`, `provider_reported_total_tokens = None`, `latency_seconds = None`, and `estimated_cost = None`. Simulated tokens are never represented as provider-reported usage.
 - Implemented `agent/docs_check.py`:
   - Tavily client wrapper with domain preference filtering for official documentation.
   - Structured evidence models (`TavilyEvidence`, `TavilyVerificationResult`).
-  - Fallback simulation for offline testing and missing credential handling.
+  - **Explicit Simulation Boundary:** When offline, evidence items are flagged `is_simulated = True`, result marked `is_live = False`, `search_duration_seconds = None`, and clearly labeled `[SIMULATED - OFFLINE]`. Simulated evidence is never presented as live Tavily data.
 
 #### D. Containerization & Config
 - Created `Dockerfile` (multi-stage Python 3.13 image with git, ripgrep, and dependencies).
@@ -124,8 +132,11 @@ tests/test_preflight.py::test_tavily_client_preflight PASSED             [100%]
 ---
 
 ### 6. Incomplete Work & External Dependencies
-- **Tavily API Key (`TAVILY_API_KEY`):** Not yet set in local `.env`. Client operates in graceful unconfigured mode with fallback simulation. A live API key will enable external real-time web retrieval.
-- **Bifrost Gateway Service:** Bifrost is scaffolded in `docker-compose.yml` (`maximhq/bifrost:latest`) and local client routes to `http://localhost:8080/v1`. The live gateway process is not yet running on port 8080 on this local host; client uses fallback simulation during preflight tests.
+- **Tavily API Key (`TAVILY_API_KEY`):** Not yet set in local `.env`. Client operates in graceful unconfigured mode with explicit fallback simulation (`is_simulated = True`). A live API key will enable external real-time web retrieval.
+- **Bifrost Gateway Service & Docker Limitations:** 
+  - Docker is not currently available directly through the Windows PATH, and the Bifrost gateway service has not been started.
+  - Image tag `maximhq/bifrost:latest` in `docker-compose.yml` is flagged as non-reproducible. It will be pinned to a verified release digest upon live gateway validation.
+  - Live Bifrost gateway integration has not yet been validated; local client operates in explicit simulation mode for preflight checks.
 - **Core Agent Loop & AST Engine:** Scheduled for Checkpoint 1 and Checkpoint 2.
 
 ---
@@ -134,11 +145,13 @@ tests/test_preflight.py::test_tavily_client_preflight PASSED             [100%]
 1. **Windows Sandbox Socket Restrictions (`[WinError 10013]`):**
    - *Discovery:* On Windows, running subprocesses inside the restricted local sandbox blocks outbound socket creation and localhost TCP port probing, which causes `asyncio` loopback socketpairs and network probes to fail or hang on DNS lookups.
    - *Resolution:* Configured `PROBE_BIFROST_LIVE` flag in health checks, avoided blocking socket probes during offline test runs, and tested test suites with standard permissions.
-2. **Docker on Host Environment:**
+2. **Docker on Host Environment & Gateway Reproducibility:**
    - *Discovery:* `docker` is not registered on the Windows PATH in this user profile.
-   - *Mitigation:* The Python application runs natively under `.venv` on Windows, and `Dockerfile` + `docker-compose.yml` are preserved for deployment in Docker environments or Linux hosts.
+   - *Mitigation:* The Python application runs natively under `.venv` on Windows. `Dockerfile` and `docker-compose.yml` are preserved for deployment in Docker environments or Linux hosts. The `maximhq/bifrost:latest` tag is documented as non-reproducible and will be pinned upon live verification.
 3. **Pydantic V2 & Python 3.13 Compatibility:**
    - *Decision:* Used standard Pydantic V2 syntax (`model_dump()`, `pydantic-settings`) and updated all datetime operations to timezone-aware UTC (`datetime.now(timezone.utc)`) to eliminate all deprecation warnings.
+4. **Explicit Simulation Boundaries:**
+   - *Decision:* Both `bifrost_client` and `docs_check` explicitly differentiate simulated runs (`is_simulated = True`, provider-reported metrics set to `None`) from live provider calls, ensuring benchmark metrics remain unpolluted.
 
 ---
 
