@@ -16,6 +16,7 @@ from agent.edits import PatchEngine, PatchResult
 from agent.verification import TestRunner, TestExecutionResult
 from agent.bifrost_client import BifrostClient, BifrostUsage
 from agent.prompts import SYSTEM_CODING_PROMPT, build_repair_prompt
+from agent.metrics import RunMetricsLedger, ModelCallRecord
 from server.database import get_connection
 from server.events import event_bus
 
@@ -33,6 +34,7 @@ class ExecutionSummary(BaseModel):
     wall_clock_seconds: float = 0.0
     events_log: List[Dict[str, Any]] = Field(default_factory=list)
     final_message: str = ""
+    ledger_summary: Dict[str, Any] = Field(default_factory=dict)
 
 class AutonomousCodingLoop:
     def __init__(
@@ -56,6 +58,7 @@ class AutonomousCodingLoop:
         self.time_limit_seconds = time_limit_seconds
         self.run_id = run_id or f"run_{int(time.time())}"
         self.mock_patch_generator = mock_patch_generator
+        self.ledger = RunMetricsLedger(run_id=self.run_id)
 
         self._cancelled = False
         self._test_runner: Optional[TestRunner] = None
@@ -66,6 +69,27 @@ class AutonomousCodingLoop:
         self._cancelled = True
         if self._test_runner:
             self._test_runner.cancel_active()
+
+    def _persist_model_call(self, record: ModelCallRecord):
+        """Persist granular model call record to SQLite database."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO model_calls (
+                    run_id, call_id, model, provider, request_id,
+                    input_tokens, output_tokens, total_tokens, cached_tokens,
+                    latency_seconds, calculated_cost, is_simulated, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """, (
+                record.run_id, record.call_id, record.model, record.provider, record.request_id,
+                record.input_tokens, record.output_tokens, record.total_tokens, record.cached_input_tokens,
+                record.latency_seconds, record.calculated_cost, 1 if record.is_simulated else 0
+            ))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     def _check_task_already_satisfied(self, repo_map: RepositoryMap, baseline_passed: bool) -> Tuple[bool, str]:
         """Check whether the requested task is already satisfied or if changes are required."""
@@ -229,12 +253,32 @@ class AutonomousCodingLoop:
                     input_tokens=150,
                     output_tokens=50,
                     total_tokens=200,
+                    request_id=f"mock_req_{iteration}",
                     model="mock-agent-adapter",
                     is_simulated=True,
                     provider="mock-adapter"
                 )
                 is_simulated = True
                 total_tokens += usage.total_tokens
+
+                call_record = ModelCallRecord(
+                    call_id=f"call_{iteration}_{os.urandom(2).hex()}",
+                    run_id=self.run_id,
+                    model=usage.model,
+                    provider=usage.provider or "mock-adapter",
+                    request_id=usage.request_id,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    total_tokens=usage.total_tokens,
+                    cached_input_tokens=None,
+                    latency_seconds=None,
+                    calculated_cost=None,
+                    cost_calculation_note="Cost unavailable for mock simulation",
+                    is_simulated=True,
+                    timestamp=time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+                )
+                self.ledger.add_call(call_record)
+                self._persist_model_call(call_record)
             else:
                 prompt = build_repair_prompt(
                     task_directive=self.task_directive,
@@ -262,10 +306,31 @@ class AutonomousCodingLoop:
                         if usage.provider_reported_total_tokens is not None:
                             provider_reported_tokens_total = (provider_reported_tokens_total or 0) + usage.provider_reported_total_tokens
 
-                    self._record_event("model_call", f"Bifrost completion received. Spent {usage.total_tokens} tokens (Simulated: {usage.is_simulated}).", {
+                    call_record = ModelCallRecord(
+                        call_id=f"call_{iteration}_{os.urandom(2).hex()}",
+                        run_id=self.run_id,
+                        model=usage.model,
+                        provider=usage.provider or "bifrost",
+                        request_id=usage.request_id,
+                        input_tokens=usage.provider_reported_input_tokens if not usage.is_simulated else usage.input_tokens,
+                        output_tokens=usage.provider_reported_output_tokens if not usage.is_simulated else usage.output_tokens,
+                        total_tokens=usage.provider_reported_total_tokens if not usage.is_simulated else usage.total_tokens,
+                        cached_input_tokens=usage.cached_tokens,
+                        latency_seconds=usage.latency_seconds,
+                        calculated_cost=usage.estimated_cost,
+                        cost_calculation_note=usage.cost_calculation_note,
+                        is_simulated=usage.is_simulated,
+                        timestamp=time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+                    )
+                    self.ledger.add_call(call_record)
+                    self._persist_model_call(call_record)
+
+                    self._record_event("model_call", f"Bifrost completion received. Spent {usage.total_tokens} tokens (Simulated: {usage.is_simulated}, Model: {usage.model}, ReqID: {usage.request_id}).", {
                         "model": usage.model,
                         "tokens": usage.total_tokens,
-                        "is_simulated": usage.is_simulated
+                        "is_simulated": usage.is_simulated,
+                        "request_id": usage.request_id,
+                        "estimated_cost": usage.estimated_cost
                     })
                 except Exception as err:
                     self._record_event("model_error", f"Bifrost gateway error: {err}")
@@ -346,20 +411,22 @@ class AutonomousCodingLoop:
             is_simulated=is_simulated,
             wall_clock_seconds=elapsed,
             events_log=self.events,
-            final_message=message
+            final_message=message,
+            ledger_summary=self.ledger.to_summary_dict()
         )
 
         try:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO runs (run_id, status, configuration, repo_path, prompt, diff_text, created_at, completed_at)
-                VALUES (?, ?, 'autonomous_loop', ?, ?, ?, datetime('now'), datetime('now'))
+                INSERT INTO runs (run_id, status, configuration, repo_path, prompt, metrics_json, diff_text, created_at, completed_at)
+                VALUES (?, ?, 'autonomous_loop', ?, ?, ?, ?, datetime('now'), datetime('now'))
                 ON CONFLICT(run_id) DO UPDATE SET
                     status = excluded.status,
+                    metrics_json = excluded.metrics_json,
                     diff_text = excluded.diff_text,
                     completed_at = datetime('now')
-            """, (self.run_id, status, str(self.workspace_dir), self.task_directive, "\n".join(diffs)))
+            """, (self.run_id, status, str(self.workspace_dir), self.task_directive, json.dumps(self.ledger.to_summary_dict()), "\n".join(diffs)))
             conn.commit()
             conn.close()
         except Exception:

@@ -203,6 +203,29 @@ async def get_run(run_id: str):
         raise HTTPException(status_code=404, detail="Run not found")
     return dict(row)
 
+@app.get("/api/runs/{run_id}/metrics")
+async def get_run_metrics(run_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    run_row = cursor.execute("SELECT run_id, status, metrics_json, created_at, completed_at FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if not run_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Run not found")
+    
+    calls_rows = cursor.execute("SELECT * FROM model_calls WHERE run_id = ? ORDER BY id ASC", (run_id,)).fetchall()
+    conn.close()
+
+    calls = [dict(c) for c in calls_rows]
+    metrics_summary = json.loads(run_row["metrics_json"] or "{}")
+
+    return {
+        "run_id": run_id,
+        "status": run_row["status"],
+        "metrics_summary": metrics_summary,
+        "model_calls": calls,
+        "total_calls": len(calls)
+    }
+
 @app.get("/api/runs/{run_id}/events")
 async def stream_events(run_id: str, request: Request):
     queue = event_bus.subscribe(run_id)

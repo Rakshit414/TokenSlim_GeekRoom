@@ -13,15 +13,18 @@ class BifrostUsage(BaseModel):
     provider_reported_input_tokens: Optional[int] = None
     provider_reported_output_tokens: Optional[int] = None
     provider_reported_total_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
     
     # Token counts for tracking (explicitly labeled if simulated)
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
     
+    request_id: Optional[str] = None
     model: str = ""
     latency_seconds: Optional[float] = None
     estimated_cost: Optional[float] = None
+    cost_calculation_note: Optional[str] = None
     gateway_connected: bool = True
     provider: Optional[str] = "bifrost"
     is_simulated: bool = False
@@ -65,35 +68,66 @@ class BifrostClient:
         model: Optional[str] = None,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-        fallback_mock: bool = True
+        fallback_mock: bool = True,
+        request_id: Optional[str] = None
     ) -> Tuple[str, BifrostUsage]:
         """Execute chat completion through Bifrost gateway with exact token accounting."""
         target_model = model or self.default_model
+        req_id = request_id or f"bf_req_{int(time.time()*1000)}_{os.urandom(3).hex()}"
         start_time = time.time()
 
         try:
+            from agent.metrics import calculate_call_cost
             response = self._client.chat.completions.create(
                 model=target_model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                extra_headers={"x-request-id": req_id}
             )
             elapsed = time.time() - start_time
             content = response.choices[0].message.content or ""
 
-            prompt_toks = response.usage.prompt_tokens if response.usage else 0
-            compl_toks = response.usage.completion_tokens if response.usage else 0
-            total_toks = response.usage.total_tokens if response.usage else 0
+            if response.usage is not None:
+                prompt_toks = response.usage.prompt_tokens if response.usage.prompt_tokens is not None else 0
+                compl_toks = response.usage.completion_tokens if response.usage.completion_tokens is not None else 0
+                total_toks = response.usage.total_tokens if response.usage.total_tokens is not None else (prompt_toks + compl_toks)
+                cached_toks = None
+                if hasattr(response.usage, "prompt_tokens_details") and response.usage.prompt_tokens_details:
+                    cached_toks = getattr(response.usage.prompt_tokens_details, "cached_tokens", None)
+
+                # Reconcile request ID from server response if available
+                resp_id = getattr(response, "id", None) or req_id
+
+                # Calculate cost with pricing catalog
+                est_cost, cost_note = calculate_call_cost(
+                    target_model,
+                    prompt_toks,
+                    compl_toks,
+                    cached_toks
+                )
+            else:
+                prompt_toks = 0
+                compl_toks = 0
+                total_toks = 0
+                cached_toks = None
+                resp_id = getattr(response, "id", None) or req_id
+                est_cost = None
+                cost_note = "Usage metadata omitted by provider; cost unavailable"
 
             usage = BifrostUsage(
                 provider_reported_input_tokens=prompt_toks,
                 provider_reported_output_tokens=compl_toks,
                 provider_reported_total_tokens=total_toks,
+                cached_tokens=cached_toks,
                 input_tokens=prompt_toks,
                 output_tokens=compl_toks,
                 total_tokens=total_toks,
+                request_id=resp_id,
                 model=response.model or target_model,
                 latency_seconds=elapsed,
+                estimated_cost=est_cost,
+                cost_calculation_note=cost_note,
                 gateway_connected=True,
                 provider="bifrost",
                 is_simulated=False
@@ -111,12 +145,15 @@ class BifrostClient:
                     provider_reported_input_tokens=None,
                     provider_reported_output_tokens=None,
                     provider_reported_total_tokens=None,
+                    cached_tokens=None,
                     input_tokens=est_in,
                     output_tokens=est_out,
                     total_tokens=est_in + est_out,
+                    request_id=f"sim_{req_id}",
                     model=f"{target_model} (simulated-offline)",
                     latency_seconds=None,  # Latency unavailable for real provider
                     estimated_cost=None,    # Cost unavailable for simulation
+                    cost_calculation_note="Cost unavailable for offline simulation",
                     gateway_connected=False,
                     provider="simulated-offline",
                     is_simulated=True,
@@ -124,3 +161,34 @@ class BifrostClient:
                 )
                 return mock_content, usage
             raise conn_err
+
+    @staticmethod
+    def cross_check_usage(response: Any, recorded_usage: BifrostUsage) -> Dict[str, Any]:
+        """Cross-check recorded usage against gateway response object."""
+        if not response or not hasattr(response, "usage") or not response.usage:
+            return {
+                "verified": False,
+                "reason": "Gateway response did not contain usage metadata",
+                "diff_tokens": None
+            }
+        
+        resp_prompt = response.usage.prompt_tokens or 0
+        resp_compl = response.usage.completion_tokens or 0
+        resp_total = response.usage.total_tokens or 0
+
+        matches = (
+            recorded_usage.provider_reported_input_tokens == resp_prompt and
+            recorded_usage.provider_reported_output_tokens == resp_compl and
+            recorded_usage.provider_reported_total_tokens == resp_total
+        )
+
+        return {
+            "verified": matches,
+            "response_prompt_tokens": resp_prompt,
+            "response_completion_tokens": resp_compl,
+            "response_total_tokens": resp_total,
+            "recorded_input_tokens": recorded_usage.provider_reported_input_tokens,
+            "recorded_output_tokens": recorded_usage.provider_reported_output_tokens,
+            "recorded_total_tokens": recorded_usage.provider_reported_total_tokens,
+            "diff_tokens": (recorded_usage.provider_reported_total_tokens or 0) - resp_total
+        }

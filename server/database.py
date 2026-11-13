@@ -51,6 +51,25 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS model_calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            call_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            request_id TEXT,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            total_tokens INTEGER,
+            cached_tokens INTEGER,
+            latency_seconds REAL,
+            calculated_cost REAL,
+            is_simulated INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES runs (run_id)
+        )
+    """)
     conn.commit()
     conn.close()
 
