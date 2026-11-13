@@ -122,25 +122,101 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderStaleDetection(detection) {
     if (!staleContainer) return;
-    const badgeClass = detection.classification === 'STALE' ? 'badge-stale' :
-                       detection.classification === 'CURRENT' ? 'badge-current' : 'badge-uncertain';
+    const emptyMsg = document.getElementById('stale-empty-msg');
+    if (emptyMsg) emptyMsg.style.display = 'none';
+
+    const classification = (detection.classification || 'UNCERTAIN').toUpperCase();
+    const badgeClass = classification === 'STALE' ? 'badge-stale' :
+                       classification === 'CURRENT' ? 'badge-current' : 'badge-uncertain';
+
+    const simBadge = detection.is_simulated ?
+      '<span class="badge-status badge-uncertain" style="font-size: 10px; padding: 2px 6px;">[OFFLINE SIMULATION]</span>' :
+      '<span class="badge-status badge-current" style="font-size: 10px; padding: 2px 6px;">[LIVE TAVILY]</span>';
 
     const card = document.createElement('div');
     card.className = 'panel';
-    card.style.marginBottom = '10px';
+    card.style.marginBottom = '12px';
+    card.style.border = '1px solid var(--cream-border)';
+
+    let correctionHtml = '';
+    if (detection.recommended_correction) {
+      correctionHtml += `
+        <div style="margin-top: 8px; padding: 8px; background-color: var(--coral-subtle); border-left: 3px solid var(--coral); border-radius: 4px;">
+          <strong style="color: var(--coral);">Recommended Correction:</strong>
+          <p style="margin-top: 2px; font-size: 12px;">${escapeHtml(detection.recommended_correction)}</p>
+        </div>
+      `;
+    }
+    if (detection.suggested_patch) {
+      correctionHtml += `
+        <div style="margin-top: 6px;">
+          <small style="color: var(--cream-text-muted); font-weight: 600;">Suggested Patch:</small>
+          <pre style="margin-top: 4px; padding: 6px 8px; background: #0d1629; color: #a8ff60; font-family: var(--font-mono); font-size: 11px; border-radius: 4px; overflow-x: auto;">${escapeHtml(detection.suggested_patch)}</pre>
+        </div>
+      `;
+    }
+
+    const techLabel = detection.technology ? `${detection.technology}${detection.version ? ' ' + detection.version : ''}` : (detection.library || 'General API');
+    const timeLabel = detection.created_at || new Date().toLocaleTimeString();
+    const sourceLink = detection.source_url ? `<a href="${escapeHtml(detection.source_url)}" target="_blank" style="color: var(--navy); font-weight: 500; text-decoration: underline;">${escapeHtml(detection.source_title || detection.source_url)}</a>` : 'Documentation reference';
+
     card.innerHTML = `
-      <div class="panel-header" style="padding: 8px 12px;">
-        <span class="badge-status ${badgeClass}">${detection.classification}</span>
-        <span style="font-size: 11px; font-family: var(--font-mono); color: var(--navy-text-muted);">${escapeHtml(detection.library || 'General API')}</span>
+      <div class="panel-header" style="padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span class="badge-status ${badgeClass}">${classification}</span>
+          <span style="font-size: 12px; font-family: var(--font-mono); font-weight: 600; color: var(--navy);">${escapeHtml(techLabel)}</span>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          ${simBadge}
+          <span style="font-size: 10px; color: var(--cream-text-muted);">${escapeHtml(timeLabel)}</span>
+        </div>
       </div>
       <div class="panel-body" style="padding: 10px 12px; font-size: 12px;">
-        <p><strong>Claim:</strong> <code>${escapeHtml(detection.claim)}</code></p>
-        <p style="margin-top: 4px;"><strong>Evidence:</strong> ${escapeHtml(detection.evidence)}</p>
-        <p style="margin-top: 4px;"><small>Source: <a href="${escapeHtml(detection.source_url)}" target="_blank" style="color: var(--navy);">${escapeHtml(detection.source_title || detection.source_url)}</a></small></p>
+        <p><strong>Claim:</strong> <code>${escapeHtml(detection.claim_text || detection.claim || '')}</code></p>
+        <p style="margin-top: 6px;"><strong>Evidence:</strong> ${escapeHtml(detection.reasoning || detection.evidence || 'Evidence retrieved via Tavily')}</p>
+        <p style="margin-top: 4px;"><small style="color: var(--cream-text-muted);">Source: ${sourceLink}</small></p>
+        ${correctionHtml}
       </div>
     `;
     staleContainer.prepend(card);
   }
+
+  // On-demand verification button
+  const btnVerify = document.getElementById('btn-verify-claim');
+  btnVerify?.addEventListener('click', async () => {
+    const claimInput = document.getElementById('input-verify-claim');
+    const techInput = document.getElementById('input-verify-tech');
+    const claimText = claimInput?.value?.trim();
+    const tech = techInput?.value?.trim() || 'general';
+
+    if (!claimText) return;
+
+    btnVerify.disabled = true;
+    btnVerify.textContent = 'Verifying...';
+
+    try {
+      const resp = await fetch('/api/stale-detection/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: `Verify claim: ${claimText}`,
+          claims: [{ claim_text: claimText, technology: tech }]
+        })
+      });
+
+      if (!resp.ok) throw new Error(`Verification failed: ${resp.statusText}`);
+      const data = await resp.json();
+
+      if (data.claims && data.claims.length > 0) {
+        data.claims.forEach(c => renderStaleDetection(c));
+      }
+    } catch (e) {
+      appendTerminalLine('ERROR', `Stale check failed: ${e.message}`, true);
+    } finally {
+      btnVerify.disabled = false;
+      btnVerify.textContent = 'Verify';
+    }
+  });
 
   // Navigation tab interaction
   document.querySelectorAll('.nav-item').forEach(item => {

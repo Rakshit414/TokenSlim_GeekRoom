@@ -5,21 +5,30 @@ import os
 import json
 import asyncio
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from dotenv import load_dotenv
 import httpx
 
 from server.schemas import RunCreateRequest, RunResponse, HealthResponse, TokenMetrics
-from server.database import get_connection, init_db
+from server.database import (
+    get_connection, init_db, save_stale_detection_run,
+    get_stale_detection_run, get_claims_for_run,
+    get_evidence_for_claim, get_correction_for_claim
+)
 from server.events import event_bus
 from agent.loop import AutonomousCodingLoop, ExecutionSummary
+from agent.stale_detector import StaleAnswerDetector
+
+# Static asset directory
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 # Active loop registry for cancellation
 active_loops: Dict[str, AutonomousCodingLoop] = {}
@@ -38,6 +47,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 async def root():
@@ -300,3 +312,60 @@ async def get_stale_detections():
             d["run_id"] = row["run_id"]
             results.append(d)
     return {"stale_detections": results}
+
+class StaleDetectionRunRequest(BaseModel):
+    task: str = "Technical verification"
+    code_snippets: Optional[Dict[str, str]] = None
+    claims: Optional[List[Dict[str, Any]]] = None
+    max_searches: Optional[int] = 5
+
+@app.post("/api/stale-detection/runs")
+async def run_stale_detection_api(request: StaleDetectionRunRequest):
+    detector = StaleAnswerDetector(search_budget=request.max_searches or 5)
+    run = detector.run_detection(
+        task=request.task,
+        code_snippets=request.code_snippets,
+        explicit_claims=request.claims,
+        max_searches=request.max_searches,
+        persist=True
+    )
+    return {
+        "run_id": run.run_id,
+        "status": run.status,
+        "task_description": run.task_description,
+        "total_claims": len(run.claims),
+        "stale_count": len(run.stale_claims),
+        "current_count": len(run.current_claims),
+        "uncertain_count": len(run.uncertain_claims),
+        "searches_executed": run.searches_executed,
+        "is_simulated": run.is_simulated,
+        "claims": [c.model_dump() for c in run.claims]
+    }
+
+@app.get("/api/stale-detection/runs/{run_id}")
+async def get_stale_run_api(run_id: str):
+    run = get_stale_detection_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Stale detection run '{run_id}' not found")
+    claims = get_claims_for_run(run_id)
+    return {
+        "run": run,
+        "claims": claims
+    }
+
+@app.get("/api/stale-detection/runs/{run_id}/claims")
+async def get_run_claims_api(run_id: str):
+    claims = get_claims_for_run(run_id)
+    return {"run_id": run_id, "claims": claims}
+
+@app.get("/api/stale-detection/claims/{claim_id}/evidence")
+async def get_claim_evidence_api(claim_id: str):
+    evidence = get_evidence_for_claim(claim_id)
+    return {"claim_id": claim_id, "evidence": evidence}
+
+@app.get("/api/stale-detection/claims/{claim_id}/correction")
+async def get_claim_correction_api(claim_id: str):
+    corr = get_correction_for_claim(claim_id)
+    if not corr:
+        raise HTTPException(status_code=404, detail=f"Claim '{claim_id}' not found")
+    return corr

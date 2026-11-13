@@ -156,14 +156,23 @@
           </section>
 
           <!-- Stale-Answer Detection & Evidence Panel -->
-          <section class="panel">
+          <section class="panel" id="panel-stale-detector">
             <div class="panel-header">
               <div class="panel-title">Tavily Stale-Answer Evidence Inspector</div>
-              <span id="stale-status-badge" class="badge-status badge-uncertain">Standby</span>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="stale-status-badge" class="badge-status badge-uncertain">Standby</span>
+              </div>
             </div>
             <div class="panel-body">
-              <div id="stale-evidence-container" style="display: flex; flex-direction: column; gap: 12px;">
-                <p style="font-size: 13px; color: var(--cream-text-muted); font-style: italic;">
+              <!-- On-demand verification bar -->
+              <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+                <input type="text" id="input-verify-claim" class="form-input" placeholder="Enter API claim or syntax (e.g. pydantic model.dict() or openai.ChatCompletion.create)..." style="flex: 1; font-size: 12px;">
+                <input type="text" id="input-verify-tech" class="form-input" placeholder="Tech (e.g. pydantic)" style="width: 110px; font-size: 12px;">
+                <button id="btn-verify-claim" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">Verify</button>
+              </div>
+
+              <div id="stale-evidence-container" style="display: flex; flex-direction: column; gap: 12px; max-height: 480px; overflow-y: auto;">
+                <p id="stale-empty-msg" style="font-size: 13px; color: var(--cream-text-muted); font-style: italic;">
                   No claims currently flagged. When the agent detects potentially outdated API assumptions or deprecations, authoritative Tavily evidence will be inspected here.
                 </p>
               </div>
