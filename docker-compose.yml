@@ -1,0 +1,35 @@
+services:
+  # Bifrost AI / LLM Gateway Service
+  bifrost:
+    image: maximhq/bifrost:latest
+    container_name: tokenslim-bifrost
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+    volumes:
+      - bifrost-data:/app/data
+
+  # TokenSlim Autonomous Coding Agent & Web Application
+  tokenslim:
+    build: .
+    container_name: tokenslim-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - BIFROST_BASE_URL=http://bifrost:8080/v1
+      - BIFROST_API_KEY=${BIFROST_API_KEY:-bifrost-local-key}
+      - MODEL_NAME=${MODEL_NAME:-gpt-4o-mini}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+    depends_on:
+      - bifrost
+    volumes:
+      - ./traces:/app/traces
+      - ./benchmark/results.json:/app/benchmark/results.json
+
+volumes:
+  bifrost-data:

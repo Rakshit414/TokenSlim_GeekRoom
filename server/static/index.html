@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TokenSlim — Autonomous Token-Efficient Coding Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Sidebar (Navy Shell) -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="brand-badge">Slim</span>
+        <div>
+          <div class="brand-title">TokenSlim</div>
+          <div class="brand-subtitle">Autonomous Coding Agent</div>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <a href="#workspace" class="nav-item active" id="nav-workspace">
+          <span>⚡</span>
+          <span>Coding Workspace</span>
+        </a>
+        <a href="#trace" class="nav-item" id="nav-trace">
+          <span>📜</span>
+          <span>Execution Trace</span>
+        </a>
+        <a href="#stale-detector" class="nav-item" id="nav-stale">
+          <span>🔍</span>
+          <span>Stale-Answer Detector</span>
+        </a>
+        <a href="#diff-viewer" class="nav-item" id="nav-diff">
+          <span>📝</span>
+          <span>Diff & Verification</span>
+        </a>
+        <a href="#benchmark" class="nav-item" id="nav-bench">
+          <span>📊</span>
+          <span>Benchmark Dashboard</span>
+        </a>
+        <a href="#bifrost-metrics" class="nav-item" id="nav-bifrost">
+          <span>🌐</span>
+          <span>Bifrost Gateway</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="gateway-status">
+          <span class="status-dot active"></span>
+          <span>Bifrost: <strong id="bifrost-status-label">Connected</strong></span>
+        </div>
+        <div class="gateway-status">
+          <span class="status-dot active"></span>
+          <span>Tavily: <strong id="tavily-status-label">Ready</strong></span>
+        </div>
+        <div style="font-size: 10px; margin-top: 4px; opacity: 0.7;">
+          Geek Room × HackCulture 2026
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace (Cream Surface) -->
+    <main class="main-wrapper">
+      <!-- Top Bar -->
+      <header class="top-bar">
+        <div class="top-bar-left">
+          <h1 class="view-heading" id="view-title">Autonomous Coding Workspace</h1>
+        </div>
+        <div class="top-bar-metrics">
+          <div class="metric-pill">
+            <span class="label">Tokens Used</span>
+            <span class="value" id="top-tokens">0</span>
+          </div>
+          <div class="metric-pill highlight">
+            <span class="label">Reduction</span>
+            <span class="value" id="top-reduction">0.0%</span>
+          </div>
+          <div class="metric-pill">
+            <span class="label">Bifrost Calls</span>
+            <span class="value" id="top-calls">0</span>
+          </div>
+          <div class="metric-pill">
+            <span class="label">Stale Detections</span>
+            <span class="value" id="top-stale-count">0</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Canvas -->
+      <div class="workspace-canvas" id="canvas-content">
+        <!-- Configuration & Task Panel -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Task Specification & Repository Scope</div>
+            <span class="badge-status badge-current">LeanCode + Tavily Active</span>
+          </div>
+          <div class="panel-body">
+            <div class="grid-2col">
+              <div class="form-group">
+                <label class="form-label">Repository / Target Directory</label>
+                <input type="text" id="input-repo" class="form-input" value="benchmark/tasks/task_pydantic_v2" placeholder="e.g. benchmark/tasks/task_pydantic_v2 or GitHub URL">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Configuration Mode</label>
+                <select id="select-config" class="form-select">
+                  <option value="leancode_tavily">LeanCode + Tavily (Complete TokenSlim - Recommended)</option>
+                  <option value="leancode">LeanCode (AST + Selective Context, No Tavily)</option>
+                  <option value="naive_baseline">Naive Baseline (Broad Context)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Task Directive</label>
+              <textarea id="input-prompt" class="form-textarea" placeholder="Describe the software engineering task, bug to repair, or feature to adapt..."></textarea>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <span style="font-size: 12px; color: var(--cream-text-muted);">Token Budget:</span>
+                <input type="number" id="input-budget" class="form-input" style="width: 100px;" value="15000">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--navy); cursor: pointer;">
+                  <input type="checkbox" id="check-replay" checked>
+                  <span>Replay Pre-recorded Trace</span>
+                </label>
+              </div>
+
+              <div style="display: flex; gap: 10px;">
+                <button id="btn-cancel" class="btn btn-secondary" disabled>Cancel</button>
+                <button id="btn-run" class="btn btn-coral">Execute Autonomous Agent</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Live Execution Trace & Dark Code Editor Terminal -->
+        <div class="grid-2col">
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Autonomous Execution Trace</div>
+              <span id="trace-status" class="badge-status badge-current">Idle</span>
+            </div>
+            <div class="panel-body">
+              <div id="terminal-trace" class="terminal-window">
+                <div class="terminal-line">
+                  <span class="terminal-timestamp">[00:00:00]</span>
+                  <span class="terminal-tag">[SYSTEM]</span>
+                  <span>TokenSlim initialized. Ready for task execution.</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Stale-Answer Detection & Evidence Panel -->
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Tavily Stale-Answer Evidence Inspector</div>
+              <span id="stale-status-badge" class="badge-status badge-uncertain">Standby</span>
+            </div>
+            <div class="panel-body">
+              <div id="stale-evidence-container" style="display: flex; flex-direction: column; gap: 12px;">
+                <p style="font-size: 13px; color: var(--cream-text-muted); font-style: italic;">
+                  No claims currently flagged. When the agent detects potentially outdated API assumptions or deprecations, authoritative Tavily evidence will be inspected here.
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Diff & Verification Results -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Minimal Diff & Test Verification</div>
+            <span id="verification-status" class="badge-status badge-current">Tests Passed</span>
+          </div>
+          <div class="panel-body">
+            <pre id="diff-content" class="code-editor" style="padding: 14px; min-height: 120px; max-height: 240px;">// Minimal patches and unified diffs generated by TokenSlim will appear here.</pre>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
