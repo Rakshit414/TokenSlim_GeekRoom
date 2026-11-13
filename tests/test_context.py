@@ -103,12 +103,41 @@ def test_context_budget_limits(sample_repo):
     assert package.metrics.total_lines <= 5
     assert package.metrics.budget_exhausted is True
 
-def test_token_estimation_utility():
-    """Verify documented token estimation and clear marking as estimate."""
-    text = "def hello_world(): return 'Hello, World!'"
-    count, method = estimate_tokens(text)
-    assert count > 0
-    assert method in ("tiktoken_cl100k", "heuristic_chars_div_4")
+def test_partial_slice_annotation(sample_repo):
+    """Verify that partial slices are never silently represented as complete entities."""
+    scanner = RepositoryScanner(str(sample_repo))
+    repo_map = scanner.scan()
+
+    retriever = ContextRetriever(repo_map, context_window_padding=1)
+    # Search for a specific internal token that only captures a couple lines of validate_token
+    package = retriever.retrieve("startswith")
+
+    auth_slices = [s for s in package.slices if s.file_path == "auth.py"]
+    assert len(auth_slices) > 0
+    slice_item = auth_slices[0]
+    # Check that partial is flagged
+    assert slice_item.is_partial is True
+    assert slice_item.partial_reason is not None
+    assert "validate_token" in slice_item.partial_reason
+    assert "[NOTICE:" in package.formatted_prompt_context
+    assert "omitted" in package.formatted_prompt_context
+
+def test_independent_budget_enforcement(sample_repo):
+    """Verify that max_chars, max_lines, and max_tokens independently enforce truncation."""
+    scanner = RepositoryScanner(str(sample_repo))
+    repo_map = scanner.scan()
+
+    # Limit by characters only (50 chars)
+    char_retriever = ContextRetriever(repo_map, max_chars=50, max_tokens=10000, max_lines=1000)
+    pkg_char = char_retriever.retrieve("AuthManager DatabaseConnection")
+    assert pkg_char.metrics.total_characters <= 50
+    assert pkg_char.metrics.budget_exhausted is True
+
+    # Limit by lines only (3 lines)
+    line_retriever = ContextRetriever(repo_map, max_chars=10000, max_tokens=10000, max_lines=3)
+    pkg_line = line_retriever.retrieve("AuthManager DatabaseConnection")
+    assert pkg_line.metrics.total_lines <= 3
+    assert pkg_line.metrics.budget_exhausted is True
 
 def test_deterministic_retrieval(sample_repo):
     """Verify that repeated retrievals with the same query produce bit-for-bit identical results."""

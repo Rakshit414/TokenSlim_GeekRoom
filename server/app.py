@@ -19,6 +19,10 @@ import httpx
 from server.schemas import RunCreateRequest, RunResponse, HealthResponse, TokenMetrics
 from server.database import get_connection, init_db
 from server.events import event_bus
+from agent.loop import AutonomousCodingLoop, ExecutionSummary
+
+# Active loop registry for cancellation
+active_loops: Dict[str, AutonomousCodingLoop] = {}
 
 # Load environment configuration
 load_dotenv()
@@ -135,7 +139,7 @@ async def create_run(request: RunCreateRequest):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         run_id,
-        "queued",
+        "running",
         request.configuration,
         request.repo_path,
         request.prompt,
@@ -148,7 +152,46 @@ async def create_run(request: RunCreateRequest):
     conn.commit()
     conn.close()
 
-    return {"run_id": run_id, "status": "queued"}
+    # Launch background autonomous execution loop
+    target_repo = request.repo_path
+    if not Path(target_repo).is_absolute():
+        target_repo = str((Path(__file__).resolve().parent.parent / target_repo).resolve())
+
+    loop_instance = AutonomousCodingLoop(
+        workspace_dir=target_repo,
+        task_directive=request.prompt or "Analyze repository and repair defects",
+        token_budget=request.token_budget or 15000,
+        run_id=run_id
+    )
+    active_loops[run_id] = loop_instance
+
+    async def execute_background():
+        try:
+            summary = await asyncio.to_thread(loop_instance.run)
+            # Emit final metrics event
+            await event_bus.broadcast(run_id, {
+                "type": "metrics",
+                "total_tokens": summary.total_tokens_spent,
+                "llm_calls": summary.iterations_count,
+                "reduction_pct": 0.0
+            })
+            if summary.diffs:
+                await event_bus.broadcast(run_id, {
+                    "type": "diff",
+                    "diff": "\n".join(summary.diffs)
+                })
+        except Exception as e:
+            await event_bus.broadcast(run_id, {
+                "type": "log",
+                "source": "ERROR",
+                "message": f"Execution loop failed: {e}"
+            })
+        finally:
+            active_loops.pop(run_id, None)
+
+    asyncio.create_task(execute_background())
+
+    return {"run_id": run_id, "status": "running"}
 
 @app.get("/api/runs/{run_id}")
 async def get_run(run_id: str):
@@ -193,6 +236,9 @@ async def stream_events(run_id: str, request: Request):
 
 @app.post("/api/runs/{run_id}/cancel")
 async def cancel_run(run_id: str):
+    if run_id in active_loops:
+        active_loops[run_id].cancel()
+
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE runs SET status = 'cancelled' WHERE run_id = ?", (run_id,))

@@ -19,6 +19,8 @@ class CodeSlice(BaseModel):
     content: str
     score: float = 0.0
     matched_reasons: List[str] = Field(default_factory=list)
+    is_partial: bool = False
+    partial_reason: Optional[str] = None
 
 class ContextMetrics(BaseModel):
     retrieved_files_count: int = 0
@@ -188,13 +190,48 @@ class ContextRetriever:
                 budget_exhausted = True
                 continue
 
+            # Determine if slice is a partial excerpt of a function, class, or whole file
+            is_partial = False
+            partial_reason = None
+            meta = self.repo_map.files.get(item["file_path"])
+            if meta:
+                total_file_lines = meta.line_count or item["end_line"]
+                if item["start_line"] > 1 or item["end_line"] < total_file_lines:
+                    # Check if it intersects any top-level function or class method partially
+                    for fn in meta.functions:
+                        if not (item["end_line"] < fn.start_line or item["start_line"] > fn.end_line):
+                            if item["start_line"] > fn.start_line or item["end_line"] < fn.end_line:
+                                is_partial = True
+                                partial_reason = f"Partial excerpt of function '{fn.name}' (lines {fn.start_line}-{fn.end_line})"
+                                break
+                    if not is_partial:
+                        for cls in meta.classes:
+                            for m in cls.methods:
+                                if not (item["end_line"] < m.start_line or item["start_line"] > m.end_line):
+                                    if item["start_line"] > m.start_line or item["end_line"] < m.end_line:
+                                        is_partial = True
+                                        partial_reason = f"Partial excerpt of method '{cls.name}.{m.name}' (lines {m.start_line}-{m.end_line})"
+                                        break
+                            if is_partial:
+                                break
+                            if not (item["end_line"] < cls.start_line or item["start_line"] > cls.end_line):
+                                if item["start_line"] > cls.start_line or item["end_line"] < cls.end_line:
+                                    is_partial = True
+                                    partial_reason = f"Partial excerpt of class '{cls.name}' (lines {cls.start_line}-{cls.end_line})"
+                                    break
+                    if not is_partial and (item["start_line"] > 1 or item["end_line"] < total_file_lines):
+                        is_partial = True
+                        partial_reason = f"Excerpt of lines {item['start_line']}-{item['end_line']} (total file has {total_file_lines} lines)"
+
             final_slices.append(CodeSlice(
                 file_path=item["file_path"],
                 start_line=item["start_line"],
                 end_line=item["end_line"],
                 content=content,
                 score=item["score"],
-                matched_reasons=item.get("reasons", [item.get("reason", "relevance")])
+                matched_reasons=item.get("reasons", [item.get("reason", "relevance")]),
+                is_partial=is_partial,
+                partial_reason=partial_reason
             ))
 
             total_tokens += slice_tokens
@@ -340,7 +377,7 @@ class ContextRetriever:
         return "\n".join(annotated)
 
     def _format_slices(self, slices: List[CodeSlice]) -> str:
-        """Format slices into structured prompt context."""
+        """Format slices into structured prompt context with explicit partial annotations."""
         if not slices:
             return "// No specific context retrieved."
 
@@ -348,5 +385,18 @@ class ContextRetriever:
         for s in slices:
             header = f"--- File: {s.file_path} (Lines {s.start_line}-{s.end_line}) ---"
             reasons = f"// Relevant: {', '.join(s.matched_reasons)}"
-            blocks.append(f"{header}\n{reasons}\n{s.content}\n")
+            partial_banner = f"// [NOTICE: {s.partial_reason}]" if s.is_partial and s.partial_reason else ""
+            
+            parts = [header, reasons]
+            if partial_banner:
+                parts.append(partial_banner)
+            if s.start_line > 1:
+                parts.append("// ... [preceding lines omitted] ...")
+            parts.append(s.content)
+            
+            meta = self.repo_map.files.get(s.file_path)
+            if meta and meta.line_count and s.end_line < meta.line_count:
+                parts.append("// ... [subsequent lines omitted] ...")
+                
+            blocks.append("\n".join(parts) + "\n")
         return "\n".join(blocks)
