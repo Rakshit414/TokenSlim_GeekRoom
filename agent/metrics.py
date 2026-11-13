@@ -12,9 +12,11 @@ class ModelPricing(BaseModel):
     output_rate_per_million: float
     cached_input_rate_per_million: float
     pricing_source: str
+    official_source_url: str
     last_updated: str
+    verification_date: str
 
-# Configurable catalog with verified public rates per 1M tokens
+# Configurable catalog with verified official public rates per 1M tokens
 MODEL_PRICING_CATALOG: Dict[str, ModelPricing] = {
     "gpt-4o-mini": ModelPricing(
         model_name="gpt-4o-mini",
@@ -22,7 +24,9 @@ MODEL_PRICING_CATALOG: Dict[str, ModelPricing] = {
         output_rate_per_million=0.60,
         cached_input_rate_per_million=0.075,
         pricing_source="OpenAI Pricing Documentation",
-        last_updated="2026-01-15"
+        official_source_url="https://openai.com/api/pricing/",
+        last_updated="2026-01-15",
+        verification_date="2026-11-13"
     ),
     "gpt-4o": ModelPricing(
         model_name="gpt-4o",
@@ -30,7 +34,9 @@ MODEL_PRICING_CATALOG: Dict[str, ModelPricing] = {
         output_rate_per_million=10.00,
         cached_input_rate_per_million=1.25,
         pricing_source="OpenAI Pricing Documentation",
-        last_updated="2026-01-15"
+        official_source_url="https://openai.com/api/pricing/",
+        last_updated="2026-01-15",
+        verification_date="2026-11-13"
     ),
     "claude-3-5-haiku-20241022": ModelPricing(
         model_name="claude-3-5-haiku-20241022",
@@ -38,7 +44,9 @@ MODEL_PRICING_CATALOG: Dict[str, ModelPricing] = {
         output_rate_per_million=4.00,
         cached_input_rate_per_million=0.08,
         pricing_source="Anthropic Pricing Documentation",
-        last_updated="2026-01-15"
+        official_source_url="https://www.anthropic.com/pricing",
+        last_updated="2026-01-15",
+        verification_date="2026-11-13"
     ),
     "claude-3-5-sonnet-20241022": ModelPricing(
         model_name="claude-3-5-sonnet-20241022",
@@ -46,7 +54,9 @@ MODEL_PRICING_CATALOG: Dict[str, ModelPricing] = {
         output_rate_per_million=15.00,
         cached_input_rate_per_million=0.30,
         pricing_source="Anthropic Pricing Documentation",
-        last_updated="2026-01-15"
+        official_source_url="https://www.anthropic.com/pricing",
+        last_updated="2026-01-15",
+        verification_date="2026-11-13"
     ),
     "gemini-1.5-flash": ModelPricing(
         model_name="gemini-1.5-flash",
@@ -54,7 +64,19 @@ MODEL_PRICING_CATALOG: Dict[str, ModelPricing] = {
         output_rate_per_million=0.30,
         cached_input_rate_per_million=0.01875,
         pricing_source="Google Cloud AI Pricing Documentation",
-        last_updated="2026-01-15"
+        official_source_url="https://ai.google.dev/pricing",
+        last_updated="2026-01-15",
+        verification_date="2026-11-13"
+    ),
+    "gemini-1.5-pro": ModelPricing(
+        model_name="gemini-1.5-pro",
+        input_rate_per_million=1.25,
+        output_rate_per_million=5.00,
+        cached_input_rate_per_million=0.3125,
+        pricing_source="Google Cloud AI Pricing Documentation",
+        official_source_url="https://ai.google.dev/pricing",
+        last_updated="2026-01-15",
+        verification_date="2026-11-13"
     )
 }
 
@@ -89,7 +111,7 @@ def calculate_call_cost(
     output_cost = (output_tokens / 1_000_000.0) * matched_pricing.output_rate_per_million
 
     total_est = round(input_cost + cached_cost + output_cost, 7)
-    note = f"Calculated estimate using {matched_pricing.pricing_source} (updated {matched_pricing.last_updated})"
+    note = f"Calculated estimate using {matched_pricing.pricing_source} ({matched_pricing.official_source_url}, verified {matched_pricing.verification_date}, rates updated {matched_pricing.last_updated})"
     return total_est, note
 
 class ModelCallRecord(BaseModel):

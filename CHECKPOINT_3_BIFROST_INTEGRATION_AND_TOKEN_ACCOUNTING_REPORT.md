@@ -2,10 +2,11 @@
 
 **Project:** TokenSlim — Autonomous, Token-Efficient Coding Agent with Stale-Answer Detection  
 **Hackathon Track:** Geek Room × HackCulture Global AI Hackathon (Bifrost #01 + Tavily: Stale-Answer Detector)  
-**Date:** March 2026  
+**Date:** November 13, 2026 (Verified execution date)  
 **Commit Hash:** `193b046`  
 **Previous Verified Commit:** `d4fbb85`  
-**Test Suite Status:** 53 passed out of 53 tests (100% pass rate in 28.92s)
+**Test Suite Status:** 53 passed out of 53 tests (100% pass rate in 28.92s)  
+**Live Gateway Status:** BLOCKED / NOT VERIFIED (Local Docker/Bifrost daemon offline; deterministic offline fallback active)
 
 ---
 
@@ -40,7 +41,7 @@ Current HEAD is commit `193b046`.
 
 ## 3. Gateway Client Implementation (`agent/bifrost_client.py`)
 
-The Bifrost client wraps the OpenAI Python SDK configured against Maxim Bifrost's OpenAI-compatible routing endpoint (`http://localhost:8080/v1` by default).
+The Bifrost client wraps the OpenAI Python SDK configured against Maxim Bifrost's OpenAI-compatible routing endpoint (`http://localhost:8080/v1` for host loopback, or `http://bifrost:8080/v1` inside container networks).
 
 ### Key Architectural Capabilities:
 - **Request ID Traceability:** Injects a client-generated UUID `x-request-id` header on every outbound request (`extra_headers={"x-request-id": req_id}`) and reconciles it with the gateway's response `id` (e.g. `resp.id`).
@@ -63,16 +64,18 @@ The Bifrost client wraps the OpenAI Python SDK configured against Maxim Bifrost'
 A dedicated token accounting module (`agent/metrics.py`) defines model pricing structures and run-level metrics ledgers:
 
 ### 4.1 Model Pricing Catalog
-Standard per-million token pricing catalog is maintained with documented sources and dates:
+Standard per-million token pricing catalog is maintained with documented official source URLs and verification dates:
 
-| Model ID | Input Rate / 1M | Cached Input / 1M | Output Rate / 1M | Pricing Reference Source |
-| :--- | :--- | :--- | :--- | :--- |
-| `gpt-4o-mini` | \$0.150 | \$0.075 | \$0.600 | OpenAI Pricing Documentation (2026-01-15) |
-| `gpt-4o` | \$2.500 | \$1.250 | \$10.000 | OpenAI Pricing Documentation (2026-01-15) |
-| `claude-3-5-sonnet` | \$3.000 | \$0.300 | \$15.000 | Anthropic API Pricing (2026-01-15) |
-| `gemini-1.5-flash` | \$0.075 | \$0.01875 | \$0.300 | Google Cloud Vertex AI / Gemini API (2026-01-15) |
+| Model ID | Input Rate / 1M | Cached Input / 1M | Output Rate / 1M | Official Source URL | Verification Date |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `gpt-4o-mini` | \$0.150 | \$0.075 | \$0.600 | [openai.com/api/pricing](https://openai.com/api/pricing/) | 2026-11-13 |
+| `gpt-4o` | \$2.500 | \$1.250 | \$10.000 | [openai.com/api/pricing](https://openai.com/api/pricing/) | 2026-11-13 |
+| `claude-3-5-sonnet-20241022` | \$3.000 | \$0.300 | \$15.000 | [anthropic.com/pricing](https://www.anthropic.com/pricing) | 2026-11-13 |
+| `claude-3-5-haiku-20241022` | \$0.800 | \$0.080 | \$4.000 | [anthropic.com/pricing](https://www.anthropic.com/pricing) | 2026-11-13 |
+| `gemini-1.5-flash` | \$0.075 | \$0.01875 | \$0.300 | [ai.google.dev/pricing](https://ai.google.dev/pricing) | 2026-11-13 |
+| `gemini-1.5-pro` | \$1.250 | \$0.3125 | \$5.000 | [ai.google.dev/pricing](https://ai.google.dev/pricing) | 2026-11-13 |
 
-For unknown models, cost is strictly recorded as `None` with note `"Model '<name>' has no rate entry in pricing catalog; cost unavailable"`.
+For unknown or unverified models, cost is strictly recorded as `None` with note `"Model '<name>' has no rate entry in pricing catalog; cost unavailable"`. All computed costs are explicitly labelled as estimates based on published rates.
 
 ### 4.2 Data Models
 - **`ModelCallRecord`:** Records single-call telemetry: `call_id`, `run_id`, `model`, `provider`, `request_id`, `input_tokens`, `output_tokens`, `total_tokens`, `cached_input_tokens`, `latency_seconds`, `calculated_cost`, `cost_calculation_note`, `is_simulated`, and `timestamp`.
@@ -208,9 +211,13 @@ tests/test_verification.py::test_invalid_command_handling PASSED
 
 ## 7. Infrastructure & Environment Transparency
 
-1. **Docker & Bifrost Daemon Status:** As documented in Checkpoint 0, Docker is not currently available via the local Windows execution environment path, and no local Bifrost gateway daemon is running on port 8080.
-2. **Deterministic Simulation Boundary:** Because the gateway daemon is not running locally, the system operates in explicit offline simulated mode during automated offline testing. The system never claims live provider connectivity when the gateway is offline.
-3. **No Fabricated Benchmarks:** Real benchmark scores will only be computed once live network credentials and a running Bifrost gateway instance are confirmed by external review.
+1. **Live Gateway Verification Status:** **BLOCKED / NOT VERIFIED**.
+   - Docker CLI is not installed or available on the Windows host PATH.
+   - The Bifrost daemon (`maximhq/bifrost`) is not running locally on port 8080.
+   - In accordance with review instructions, passing mock tests does not equate to live gateway verification.
+   - This blocker is clearly recorded and must be unblocked before executing Checkpoint 5 benchmark runs.
+2. **Deterministic Simulation Boundary:** In local test environments without a running gateway daemon, the client operates in explicit offline simulated mode (`is_simulated = True`). Simulated tokens are never represented as provider-reported tokens.
+3. **No Fabricated Benchmarks:** Real benchmark scores will only be computed once live network credentials and a running Bifrost gateway instance are verified.
 
 ---
 
