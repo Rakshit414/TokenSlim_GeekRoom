@@ -268,3 +268,71 @@ def test_startup_recovery_marks_orphaned_runs_interrupted(clean_db):
 
     assert row["status"] == "interrupted"
     assert row["completed_at"] is not None
+
+# -------------------------------------------------------------------------
+# 8. Command Execution Security & Executable Allowlist
+# -------------------------------------------------------------------------
+def test_rejected_executable_disallowed(tmp_path):
+    """Verify unauthorized executables (curl, powershell, bash) are rejected immediately."""
+    runner = TestRunner(str(tmp_path))
+    res = runner.run_tests(test_command="powershell.exe -Command Get-Process")
+
+    assert res.passed is False
+    assert res.exit_code == -2
+    assert "Security violation" in res.concise_summary
+    assert "not in the permitted test runners allowlist" in res.concise_summary
+
+def test_disallowed_shell_operator_rejected(tmp_path):
+    """Verify shell operators (&&, ||, ;, |, >, <) are rejected as command injection threats."""
+    runner = TestRunner(str(tmp_path))
+    res = runner.run_tests(test_command=f'"{sys.executable}" -m pytest && dir')
+
+    assert res.passed is False
+    assert res.exit_code == -2
+    assert "Disallowed shell operator" in res.concise_summary
+
+def test_test_argument_path_escape_rejected(tmp_path):
+    """Verify arguments pointing outside the workspace boundary are rejected."""
+    runner = TestRunner(str(tmp_path))
+    res = runner.run_tests(test_command=f'"{sys.executable}" -m pytest ../../outside_test.py')
+
+    assert res.passed is False
+    assert res.exit_code == -2
+    assert "escapes workspace boundary" in res.concise_summary
+
+def test_test_environment_secrets_stripped(tmp_path):
+    """Verify sensitive environment credentials are stripped from the test execution process."""
+    runner = TestRunner(str(tmp_path))
+    # Script that inspects os.environ for credentials
+    inspect_script = tmp_path / "inspect_env.py"
+    inspect_script.write_text("""import os, sys
+secrets = ["TAVILY_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "BIFROST_API_KEY"]
+found = [s for s in secrets if s in os.environ and os.environ[s]]
+if found:
+    print(f"LEAKED: {found}")
+    sys.exit(1)
+print("CLEAN")
+sys.exit(0)
+""", encoding="utf-8")
+
+    # Set mock credentials in host environment
+    with patch.dict(os.environ, {
+        "TAVILY_API_KEY": "tvly-secret12345678",
+        "OPENAI_API_KEY": "sk-secret98765432"
+    }):
+        res = runner.run_tests(test_command=f'"{sys.executable}" "{inspect_script}"')
+        assert res.passed is True
+        assert res.exit_code == 0
+
+def test_cleanup_isolated_workspace_boundary_protection(tmp_path):
+    """Verify cleanup_isolated_workspace never deletes directories outside tokenslim_workspaces."""
+    protected_file = tmp_path / "important.txt"
+    protected_file.write_text("protected content\n", encoding="utf-8")
+
+    # Attempt to cleanup an arbitrary host directory
+    cleanup_isolated_workspace(tmp_path)
+
+    # Verify directory and content were NOT deleted
+    assert tmp_path.exists()
+    assert protected_file.exists()
+    assert protected_file.read_text(encoding="utf-8") == "protected content\n"

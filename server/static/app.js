@@ -437,7 +437,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  async function checkGatewayHealth() {
+    try {
+      const resp = await fetch('/api/health');
+      if (resp.ok) {
+        const data = await resp.json();
+        const bifrostEl = document.getElementById('bifrost-status-label');
+        const tavilyEl = document.getElementById('tavily-status-label');
+        if (bifrostEl) {
+          const bStatus = data.bifrost?.status || 'unverified';
+          bifrostEl.textContent = bStatus === 'reachable' ? 'Connected' : (bStatus === 'unconfigured' ? 'Offline / Unset' : 'Simulated / Offline');
+          bifrostEl.style.color = bStatus === 'reachable' ? '#5cdb95' : 'var(--coral)';
+        }
+        if (tavilyEl) {
+          const tStatus = data.tavily?.status || 'unverified';
+          tavilyEl.textContent = tStatus === 'reachable' ? 'Live API' : (tStatus === 'unconfigured' ? 'Offline / Heuristic' : 'Simulated');
+          tavilyEl.style.color = tStatus === 'reachable' ? '#5cdb95' : 'var(--coral)';
+        }
+      }
+    } catch (e) {
+      console.error('Failed to probe gateway health:', e);
+    }
+  }
+
   refreshRunHistory();
+  checkGatewayHealth();
 
   // Navigation tab interaction
   document.querySelectorAll('.nav-item').forEach(item => {

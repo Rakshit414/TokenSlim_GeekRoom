@@ -52,14 +52,25 @@ def validate_and_resolve_repo_path(repo_path_str: str, base_dir: Path) -> Path:
 
 def create_isolated_workspace(source_repo: Path, prefix: str = "run_ws_") -> Path:
     """Copy source repository into an isolated temporary directory for safe execution."""
-    workspaces_root = Path(tempfile.gettempdir()) / "tokenslim_workspaces"
+    workspaces_root = (Path(tempfile.gettempdir()) / "tokenslim_workspaces").resolve()
     workspaces_root.mkdir(parents=True, exist_ok=True)
 
     temp_ws = Path(tempfile.mkdtemp(prefix=prefix, dir=str(workspaces_root))).resolve()
+    source_resolved = source_repo.resolve()
 
     for item in source_repo.iterdir():
         if item.name in DEFAULT_WORKSPACE_EXCLUDES:
             continue
+
+        # Prevent symlink escapes from host during copy
+        if item.is_symlink():
+            try:
+                target = item.resolve()
+                if not target.is_relative_to(source_resolved):
+                    continue
+            except Exception:
+                continue
+
         dest = temp_ws / item.name
         if item.is_dir():
             shutil.copytree(
@@ -73,9 +84,12 @@ def create_isolated_workspace(source_repo: Path, prefix: str = "run_ws_") -> Pat
     return temp_ws
 
 def cleanup_isolated_workspace(workspace_path: Path):
-    """Safely remove a temporary isolated workspace."""
+    """Safely remove a temporary isolated workspace with boundary verification."""
     try:
-        if workspace_path.exists() and "tokenslim_workspaces" in str(workspace_path):
-            shutil.rmtree(workspace_path, ignore_errors=True)
+        workspaces_root = (Path(tempfile.gettempdir()) / "tokenslim_workspaces").resolve()
+        resolved_ws = workspace_path.resolve()
+        # Strictly verify that resolved target is inside tokenslim_workspaces and is not the root
+        if resolved_ws.exists() and resolved_ws.is_relative_to(workspaces_root) and resolved_ws != workspaces_root:
+            shutil.rmtree(resolved_ws, ignore_errors=True)
     except Exception:
         pass

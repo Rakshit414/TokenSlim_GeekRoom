@@ -75,6 +75,15 @@ def kill_process_tree(pid: int):
             except Exception:
                 pass
 
+# Permitted test execution binaries
+ALLOWED_EXECUTABLE_NAMES = {
+    "python", "python3", "python.exe", "pytest", "pytest.exe", "py.test"
+}
+
+DISALLOWED_SHELL_OPERATORS = {
+    "&&", "||", ";", "|", "&", ">", "<", "`", "$", "\n", "\r"
+}
+
 class TestRunner:
     __test__ = False
     def __init__(
@@ -101,6 +110,88 @@ class TestRunner:
             except Exception:
                 pass
 
+    def _validate_and_sanitize_command(
+        self,
+        test_command: Optional[str],
+        target_file: Optional[str]
+    ) -> Tuple[List[str], Optional[str]]:
+        """Validate test command against security rules, path escapes, and prohibited executables.
+        Returns: (sanitized_argv_list, error_message)
+        """
+        if not test_command:
+            if target_file:
+                tf_path = Path(target_file)
+                if not tf_path.is_absolute():
+                    tf_path = (self.workspace_dir / tf_path).resolve()
+                else:
+                    tf_path = tf_path.resolve()
+                try:
+                    if not tf_path.is_relative_to(self.workspace_dir):
+                        return [], f"Security violation: Target file '{target_file}' escapes workspace boundary."
+                except AttributeError:
+                    if not str(tf_path).startswith(str(self.workspace_dir)):
+                        return [], f"Security violation: Target file '{target_file}' escapes workspace boundary."
+                if not tf_path.exists():
+                    return [], f"Target test file does not exist: {target_file}"
+                return [self.python_executable, "-m", "pytest", "-v", str(tf_path)], None
+            else:
+                return [self.python_executable, "-m", "pytest", "-v"], None
+
+        # Check for shell operators (pipes, chaining, redirection)
+        for op in DISALLOWED_SHELL_OPERATORS:
+            if op in test_command:
+                return [], f"Security violation: Disallowed shell operator '{op}' detected in test command."
+
+        import shlex
+        try:
+            tokens = shlex.split(test_command, posix=(sys.platform != "win32"))
+            tokens = [t.strip('"\'') for t in tokens]
+        except Exception as e:
+            return [], f"Security violation: Malformed test command cannot be parsed: {e}"
+
+        if not tokens:
+            return [], "Test command cannot be empty."
+
+        # Validate executable
+        exe_token = tokens[0]
+        exe_path = Path(exe_token)
+        exe_name = exe_path.name.lower()
+
+        # Check against allowed executables
+        is_allowed_name = exe_name in ALLOWED_EXECUTABLE_NAMES
+        is_python_exec = False
+        try:
+            is_python_exec = (exe_path.resolve() == Path(self.python_executable).resolve() or
+                              exe_path.resolve() == Path(sys.executable).resolve())
+        except Exception:
+            pass
+
+        if not is_allowed_name and not is_python_exec:
+            return [], f"Security violation: Executable '{exe_token}' is not in the permitted test runners allowlist."
+
+        # Check arguments for path escapes or sensitive directory access
+        for arg in tokens[1:]:
+            if "/" in arg or "\\" in arg or arg.endswith(".py"):
+                clean_arg = arg.split("=")[-1] if "=" in arg else arg
+                p_arg = Path(clean_arg)
+                if p_arg.is_absolute():
+                    try:
+                        if not p_arg.resolve().is_relative_to(self.workspace_dir):
+                            return [], f"Security violation: Argument '{arg}' accesses path outside workspace boundary."
+                    except AttributeError:
+                        if not str(p_arg.resolve()).startswith(str(self.workspace_dir)):
+                            return [], f"Security violation: Argument '{arg}' accesses path outside workspace boundary."
+                elif ".." in p_arg.parts:
+                    resolved = (self.workspace_dir / p_arg).resolve()
+                    try:
+                        if not resolved.is_relative_to(self.workspace_dir):
+                            return [], f"Security violation: Argument '{arg}' escapes workspace boundary via parent traversal."
+                    except AttributeError:
+                        if not str(resolved).startswith(str(self.workspace_dir)):
+                            return [], f"Security violation: Argument '{arg}' escapes workspace boundary via parent traversal."
+
+        return tokens, None
+
     def run_tests(
         self,
         test_command: Optional[str] = None,
@@ -110,29 +201,25 @@ class TestRunner:
         """Execute tests in workspace and return concise, actionable results."""
         timeout_sec = timeout or self.default_timeout_seconds
 
-        # Build safe test command
-        shell_execution = False
-        if test_command:
-            if any(op in test_command for op in ("&&", "||", ";", "|", ">", "<")):
-                cmd = test_command
-                shell_execution = True
-            else:
-                import shlex
-                try:
-                    tokens = shlex.split(test_command, posix=(sys.platform != "win32"))
-                    cmd = [t.strip('"\'') for t in tokens]
-                except Exception:
-                    cmd = test_command
-                    shell_execution = True
-        elif target_file:
-            cmd = [self.python_executable, "-m", "pytest", "-v", str(target_file)]
-        else:
-            cmd = [self.python_executable, "-m", "pytest", "-v"]
+        # Validate and sanitize command against security rules
+        cmd, sec_error = self._validate_and_sanitize_command(test_command, target_file)
+        cmd_display = " ".join(cmd) if cmd else (test_command or target_file or "pytest")
+
+        if sec_error:
+            return TestExecutionResult(
+                command=cmd_display,
+                exit_code=-2,
+                passed=False,
+                duration_seconds=0.0,
+                concise_summary=f"FAILED to execute test process: {sec_error}",
+                traceback_excerpt=sec_error,
+                executed=False,
+                timed_out=False,
+                cancelled=False
+            )
 
         start_time = time.time()
         self._active_process = None
-
-        cmd_display = cmd if isinstance(cmd, str) else " ".join(cmd)
 
         if self._cancelled:
             return TestExecutionResult(
@@ -147,14 +234,19 @@ class TestRunner:
             )
 
         try:
-            # Run in workspace directory with isolated environment
+            # Run in workspace directory with isolated, secret-stripped environment
             env = os.environ.copy()
+            for secret_key in (
+                "TAVILY_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                "BIFROST_API_KEY", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"
+            ):
+                env.pop(secret_key, None)
             # Ensure workspace is at front of PYTHONPATH
             env["PYTHONPATH"] = str(self.workspace_dir) + os.pathsep + env.get("PYTHONPATH", "")
 
             process = subprocess.Popen(
                 cmd,
-                shell=shell_execution,
+                shell=False,
                 cwd=str(self.workspace_dir),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

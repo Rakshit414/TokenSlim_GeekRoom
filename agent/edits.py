@@ -125,8 +125,12 @@ class PatchEngine:
                         file_path=block.file_path,
                         error_message=f"Security violation: symlink points outside workspace: {block.file_path}"
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                return PatchResult(
+                    success=False,
+                    file_path=block.file_path,
+                    error_message=f"Security violation: unresolvable symlink target: {e}"
+                )
 
         # 2. Target file existence check
         if not target_path.exists():
