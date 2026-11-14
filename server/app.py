@@ -23,7 +23,8 @@ from server.database import (
     get_stale_detection_run, get_claims_for_run,
     get_evidence_for_claim, get_correction_for_claim,
     save_run_event, get_run_events, save_execution_trace,
-    get_execution_trace, get_all_runs, update_run_status
+    get_execution_trace, get_all_runs, update_run_status,
+    seed_initial_demo_data
 )
 from server.events import event_bus
 from agent.loop import AutonomousCodingLoop, ExecutionSummary
@@ -45,6 +46,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    seed_initial_demo_data()
     # Mark any orphaned runs from previous server restarts as 'interrupted'
     try:
         conn = get_connection()
@@ -324,6 +326,13 @@ async def get_run(run_id: str):
 async def get_run_trace_api(run_id: str):
     trace = get_execution_trace(run_id)
     if trace:
+        if "stale_detections" not in trace:
+            stale_claims = []
+            for evt in trace.get("events", []):
+                if evt.get("type") == "stale_detection":
+                    claims = evt.get("data", {}).get("claims", [])
+                    stale_claims.extend(claims)
+            trace["stale_detections"] = stale_claims
         return trace
 
     conn = get_connection()
@@ -334,6 +343,12 @@ async def get_run_trace_api(run_id: str):
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
 
     events = get_run_events(run_id)
+    stale_dets = []
+    try:
+        stale_dets = json.loads(run_row["stale_detections_json"] or "[]")
+    except Exception:
+        pass
+
     return {
         "run_id": run_id,
         "status": run_row["status"],
@@ -342,6 +357,7 @@ async def get_run_trace_api(run_id: str):
         "prompt": run_row["prompt"],
         "metrics": json.loads(run_row["metrics_json"] or "{}"),
         "diff": run_row["diff_text"] or "",
+        "stale_detections": stale_dets,
         "events": events
     }
 
@@ -382,6 +398,56 @@ async def get_run_metrics(run_id: str):
         "metrics_summary": metrics_summary,
         "model_calls": calls,
         "total_calls": len(calls)
+    }
+
+@app.get("/api/bifrost/telemetry")
+async def get_bifrost_telemetry():
+    bifrost_url = os.getenv("BIFROST_BASE_URL", "http://localhost:8080/v1")
+    model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
+    conn = get_connection()
+    cursor = conn.cursor()
+    calls = cursor.execute("SELECT * FROM model_calls ORDER BY id DESC LIMIT 20").fetchall()
+    stats = cursor.execute("""
+        SELECT 
+            COUNT(*) as total_calls,
+            SUM(input_tokens) as total_input,
+            SUM(output_tokens) as total_output,
+            SUM(total_tokens) as total_tokens,
+            SUM(CASE WHEN is_simulated = 1 THEN 1 ELSE 0 END) as simulated_calls,
+            SUM(CASE WHEN is_simulated = 0 THEN 1 ELSE 0 END) as live_calls,
+            SUM(calculated_cost) as total_cost
+        FROM model_calls
+    """).fetchone()
+    conn.close()
+
+    call_list = [dict(c) for c in calls]
+    stats_dict = dict(stats) if stats else {}
+
+    rate_card = [
+        {"model": "gpt-4o-mini", "provider": "OpenAI / Bifrost", "input_cost_per_1m": 0.150, "output_cost_per_1m": 0.600, "status": "Active Default"},
+        {"model": "gpt-4o", "provider": "OpenAI / Bifrost", "input_cost_per_1m": 2.500, "output_cost_per_1m": 10.000, "status": "Available"},
+        {"model": "claude-3-5-sonnet", "provider": "Anthropic / Bifrost", "input_cost_per_1m": 3.000, "output_cost_per_1m": 15.000, "status": "Available"},
+        {"model": "gemini-1.5-pro", "provider": "Google / Bifrost", "input_cost_per_1m": 1.250, "output_cost_per_1m": 5.000, "status": "Available"}
+    ]
+
+    return {
+        "gateway": {
+            "endpoint": bifrost_url,
+            "default_model": model_name,
+            "probe_enabled": os.getenv("PROBE_BIFROST_LIVE", "0") == "1",
+            "routing_policy": "Bifrost Primary -> Local Fallback Mock"
+        },
+        "stats": {
+            "total_calls": stats_dict.get("total_calls") or 0,
+            "total_input_tokens": stats_dict.get("total_input") or 0,
+            "total_output_tokens": stats_dict.get("total_output") or 0,
+            "total_tokens": stats_dict.get("total_tokens") or 0,
+            "simulated_calls": stats_dict.get("simulated_calls") or 0,
+            "live_calls": stats_dict.get("live_calls") or 0,
+            "total_cost": stats_dict.get("total_cost") or 0.0
+        },
+        "rate_card": rate_card,
+        "recent_calls": call_list
     }
 
 @app.get("/api/runs/{run_id}/events")

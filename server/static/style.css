@@ -283,6 +283,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  scroll-behavior: smooth;
 }
 
 /* Panels and Cards (Editorial Cream Surfaces) */
@@ -292,6 +293,7 @@ body {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-card);
   overflow: hidden;
+  scroll-margin-top: 16px;
 }
 
 .panel-header {

@@ -352,4 +352,135 @@ def update_run_status(run_id: str, status: str, completed_at: Optional[str] = No
     conn.commit()
     conn.close()
 
+def seed_initial_demo_data():
+    """Ensure pre-recorded canonical demo run trace is available for offline evaluation."""
+    demo_file = Path(__file__).resolve().parent.parent / "traces" / "demo_pydantic_v2_migration.json"
+    if not demo_file.exists():
+        return
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    existing = cursor.execute("SELECT 1 FROM runs WHERE run_id = 'demo_trace_pydantic_v2_migration'").fetchone()
+    if existing:
+        conn.close()
+        return
+
+    try:
+        with open(demo_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        run_id = data.get("run_id", "demo_trace_pydantic_v2_migration")
+        task = data.get("task", "Migrate deprecated user.dict() to user.model_dump() in Pydantic v2")
+        cfg = data.get("configuration", "leancode_tavily")
+        status = data.get("status", "COMPLETED_VERIFIED")
+        metrics = data.get("metrics", {})
+        diff = data.get("diff", "")
+        events = data.get("events", [])
+
+        stale_claims = []
+        for evt in events:
+            if evt.get("type") == "stale_detection":
+                claims = evt.get("data", {}).get("claims", [])
+                stale_claims.extend(claims)
+
+        now_str = datetime.now().isoformat()
+        cursor.execute("""
+            INSERT OR REPLACE INTO runs (
+                run_id, status, configuration, repo_path, prompt, token_budget,
+                is_replay, metrics_json, stale_detections_json, diff_text, created_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            run_id,
+            status,
+            cfg,
+            "benchmark/tasks/task_pydantic_v2",
+            task,
+            15000,
+            1,
+            json.dumps(metrics),
+            json.dumps(stale_claims),
+            diff,
+            now_str,
+            now_str
+        ))
+
+        # Save run events
+        for evt in events:
+            cursor.execute("""
+                INSERT INTO run_events (run_id, event_type, payload_json, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (run_id, evt.get("type", "log"), json.dumps(evt), now_str))
+
+        # Save execution trace
+        cursor.execute("""
+            INSERT OR REPLACE INTO execution_traces (run_id, trace_json, created_at)
+            VALUES (?, ?, ?)
+        """, (run_id, json.dumps(data), now_str))
+
+        # Save model call
+        cursor.execute("""
+            INSERT INTO model_calls (
+                run_id, call_id, model, provider, request_id,
+                input_tokens, output_tokens, total_tokens, cached_tokens,
+                latency_seconds, calculated_cost, is_simulated, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            run_id,
+            "call_demo_01",
+            "gpt-4o-mini",
+            "bifrost (simulated)",
+            "req_demo_pydantic_v2",
+            195,
+            42,
+            237,
+            0,
+            0.52,
+            0.000054,
+            1,
+            now_str
+        ))
+        conn.commit()
+    except Exception as e:
+        print(f"Failed to seed demo data: {e}")
+    finally:
+        conn.close()
+
+    # Seed stale detection claims and evidence
+    if stale_claims:
+        try:
+            save_stale_detection_run(
+                run_id=run_id,
+                task_description=task,
+                status="completed",
+                claims=[{
+                    "claim_id": f"claim_demo_{idx}",
+                    "claim_text": c.get("claim_text", ""),
+                    "technology": c.get("technology", "pydantic"),
+                    "version": "v2",
+                    "priority": "high",
+                    "classification": c.get("classification", "STALE"),
+                    "confidence": c.get("confidence", 0.9),
+                    "reasoning": c.get("evidence", ""),
+                    "recommended_correction": c.get("recommended_correction", ""),
+                    "suggested_patch": "return user.model_dump()",
+                    "is_simulated": True
+                } for idx, c in enumerate(stale_claims)],
+                evidence_records=[{
+                    "evidence_id": f"ev_demo_{idx}",
+                    "claim_id": f"claim_demo_{idx}",
+                    "url": c.get("source_url", "https://docs.pydantic.dev/latest/migration/"),
+                    "domain": "docs.pydantic.dev",
+                    "title": "Pydantic Migration Guide",
+                    "excerpt": c.get("evidence", ""),
+                    "relevance_score": 0.95,
+                    "is_simulated": True
+                } for idx, c in enumerate(stale_claims)],
+                searches_executed=1,
+                search_budget=5,
+                is_simulated=True
+            )
+        except Exception:
+            pass
+
 init_db()
+seed_initial_demo_data()

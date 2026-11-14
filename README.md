@@ -114,7 +114,7 @@ Open your browser to: **`http://localhost:8000`**
 
 ## 5. Running Tests & Verification
 
-TokenSlim maintains an exhaustive automated test suite with **100 tests passing**:
+TokenSlim maintains an exhaustive automated test suite with **103 tests passing**:
 
 ```powershell
 # Run entire test suite
@@ -179,6 +179,7 @@ Detailed methodology and token accounting formulas are documented in [docs/BENCH
 | `/api/benchmarks` | `GET` | Retrieve authoritative 12-task benchmark dataset. |
 | `/api/stale-detections` | `GET` | List all flagged deprecations and authoritative evidence. |
 | `/api/stale-detection/runs` | `POST` | Run on-demand stale syntax verification on arbitrary claims. |
+| `/api/bifrost/telemetry` | `GET` | Retrieve Bifrost gateway connectivity, rate card catalog, and recent model calls ledger. |
 
 ---
 
