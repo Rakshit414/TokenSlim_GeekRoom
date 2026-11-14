@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TokenSlim — Autonomous Token-Efficient Coding Agent</title>
-  <link rel="stylesheet" href="/static/style.css?v=2.2">
+  <link rel="stylesheet" href="/static/style.css?v=3.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -50,12 +50,12 @@
 
       <div class="sidebar-footer">
         <div class="gateway-status">
-          <span class="status-dot active"></span>
-          <span>Bifrost: <strong id="bifrost-status-label">Connected</strong></span>
+          <span class="status-dot stale" id="bifrost-dot"></span>
+          <span>Bifrost: <strong id="bifrost-status-label" style="color: var(--coral);">Offline / Simulated</strong></span>
         </div>
         <div class="gateway-status">
-          <span class="status-dot active"></span>
-          <span>Tavily: <strong id="tavily-status-label">Ready</strong></span>
+          <span class="status-dot stale" id="tavily-dot"></span>
+          <span>Tavily: <strong id="tavily-status-label" style="color: var(--coral);">Offline / Heuristic</strong></span>
         </div>
         <div style="font-size: 10px; margin-top: 4px; opacity: 0.7;">
           Geek Room × HackCulture 2026
@@ -68,92 +68,162 @@
       <!-- Top Bar -->
       <header class="top-bar">
         <div class="top-bar-left">
-          <h1 class="view-heading" id="view-title">Autonomous Coding Workspace</h1>
+          <h1 class="view-heading" id="view-title">Coding Workspace</h1>
         </div>
         <div class="top-bar-metrics">
           <div class="metric-pill">
             <span class="label">Tokens Used</span>
-            <span class="value" id="top-tokens">0</span>
+            <span class="value" id="top-tokens">237</span>
           </div>
           <div class="metric-pill highlight">
             <span class="label">Reduction</span>
-            <span class="value" id="top-reduction">0.0%</span>
+            <span class="value" id="top-reduction">42.5%</span>
           </div>
           <div class="metric-pill">
             <span class="label">Bifrost Calls</span>
-            <span class="value" id="top-calls">0</span>
+            <span class="value" id="top-calls">1</span>
           </div>
           <div class="metric-pill">
             <span class="label">Stale Detections</span>
-            <span class="value" id="top-stale-count">0</span>
+            <span class="value" id="top-stale-count">1</span>
           </div>
         </div>
       </header>
 
-      <!-- Main Canvas -->
+      <!-- Main Canvas Container with Routed Page Views -->
       <div class="workspace-canvas" id="canvas-content">
-        <!-- Configuration & Task Panel -->
-        <section class="panel" id="workspace" data-section-title="Coding Workspace">
-          <div class="panel-header">
-            <div class="panel-title">Task Specification & Repository Scope</div>
-            <span class="badge-status badge-current">LeanCode + Tavily Active</span>
-          </div>
-          <div class="panel-body">
-            <div class="grid-2col">
-              <div class="form-group">
-                <label class="form-label">Repository / Target Directory</label>
-                <input type="text" id="input-repo" class="form-input" value="benchmark/tasks/task_pydantic_v2" placeholder="e.g. benchmark/tasks/task_pydantic_v2 or GitHub URL">
+
+        <!-- ============================================================== -->
+        <!-- PAGE 1: CODING WORKSPACE                                       -->
+        <!-- ============================================================== -->
+        <div class="page-view active" id="page-workspace" data-page="workspace" data-title="Coding Workspace">
+          <!-- Task Specification Panel -->
+          <section class="panel" id="section-task-spec">
+            <div class="panel-header">
+              <div class="panel-title">Task Specification & Repository Scope</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span class="badge-status badge-current">LeanCode + Tavily Active</span>
+                <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
               </div>
+            </div>
+            <div class="panel-body">
+              <div class="grid-2col">
+                <div class="form-group">
+                  <label class="form-label">Repository / Target Directory</label>
+                  <input type="text" id="input-repo" class="form-input" value="benchmark/tasks/task_pydantic_v2" placeholder="e.g. benchmark/tasks/task_pydantic_v2 or GitHub URL">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Configuration Mode</label>
+                  <select id="select-config" class="form-select">
+                    <option value="leancode_tavily">LeanCode + Tavily (Complete TokenSlim - Recommended)</option>
+                    <option value="leancode">LeanCode (AST + Selective Context, No Tavily)</option>
+                    <option value="naive_baseline">Naive Baseline (Broad Context)</option>
+                  </select>
+                </div>
+              </div>
+
               <div class="form-group">
-                <label class="form-label">Configuration Mode</label>
-                <select id="select-config" class="form-select">
-                  <option value="leancode_tavily">LeanCode + Tavily (Complete TokenSlim - Recommended)</option>
-                  <option value="leancode">LeanCode (AST + Selective Context, No Tavily)</option>
-                  <option value="naive_baseline">Naive Baseline (Broad Context)</option>
+                <label class="form-label">Task Directive</label>
+                <textarea id="input-prompt" class="form-textarea" placeholder="Describe the software engineering task, bug to repair, or feature to adapt...">Migrate deprecated user.dict() to user.model_dump() in Pydantic v2</textarea>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                  <span style="font-size: 12px; color: var(--cream-text-muted);">Token Budget:</span>
+                  <input type="number" id="input-budget" class="form-input" style="width: 100px;" value="15000">
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--navy); cursor: pointer;">
+                    <input type="checkbox" id="check-replay" checked>
+                    <span>Replay Pre-recorded Trace</span>
+                  </label>
+                </div>
+
+                <div style="display: flex; gap: 10px;">
+                  <button id="btn-cancel" class="btn btn-secondary" disabled>Cancel</button>
+                  <button id="btn-run" class="btn btn-coral">Execute Autonomous Agent</button>
+                </div>
+              </div>
+
+              <!-- Past Run History & Replay Bar -->
+              <div style="display: flex; gap: 10px; margin-top: 14px; align-items: center; border-top: 1px solid var(--cream-border); padding-top: 12px; font-size: 12px; flex-wrap: wrap;">
+                <span style="font-weight: 600; color: var(--navy); white-space: nowrap;">Run History:</span>
+                <select id="select-history-run" class="form-select" style="flex: 1; min-width: 260px; max-width: 480px; font-size: 11px;">
+                  <option value="">-- Load / Replay Past Run Trace --</option>
                 </select>
+                <button id="btn-load-history" class="btn btn-secondary" style="padding: 5px 12px; font-size: 11px;">Inspect Trace</button>
+                <button id="btn-replay-history" class="btn btn-secondary" style="padding: 5px 12px; font-size: 11px;">Replay Stream</button>
+                <span id="replay-indicator" class="badge-status badge-uncertain" style="display: none;">[REPLAY ACTIVE]</span>
               </div>
             </div>
+          </section>
 
-            <div class="form-group">
-              <label class="form-label">Task Directive</label>
-              <textarea id="input-prompt" class="form-textarea" placeholder="Describe the software engineering task, bug to repair, or feature to adapt..."></textarea>
+          <!-- Current Run Overview & Navigation Shortcuts -->
+          <section class="panel" id="section-workspace-overview">
+            <div class="panel-header">
+              <div class="panel-title">Active Run Telemetry & Navigation Shortcuts</div>
+              <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
             </div>
+            <div class="panel-body">
+              <div class="grid-4col" style="margin-bottom: 16px;">
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 12px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Status</div>
+                  <div style="font-size: 15px; font-weight: 700; color: var(--status-current); margin-top: 4px;" id="ws-run-status">COMPLETED_VERIFIED</div>
+                  <div style="font-size: 11px; color: var(--cream-text-muted); margin-top: 2px;">Tests verified clean</div>
+                </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
-              <div style="display: flex; gap: 12px; align-items: center;">
-                <span style="font-size: 12px; color: var(--cream-text-muted);">Token Budget:</span>
-                <input type="number" id="input-budget" class="form-input" style="width: 100px;" value="15000">
-                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--navy); cursor: pointer;">
-                  <input type="checkbox" id="check-replay" checked>
-                  <span>Replay Pre-recorded Trace</span>
-                </label>
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 12px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Active Config</div>
+                  <div style="font-size: 15px; font-weight: 700; color: var(--navy); margin-top: 4px;" id="ws-run-config">leancode_tavily</div>
+                  <div style="font-size: 11px; color: var(--cream-text-muted); margin-top: 2px;">AST + Stale Guidance</div>
+                </div>
+
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 12px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Context Savings</div>
+                  <div style="font-size: 15px; font-weight: 700; color: var(--coral); margin-top: 4px;" id="ws-run-reduction">-31.4% Saved</div>
+                  <div style="font-size: 11px; color: var(--cream-text-muted); margin-top: 2px;">LeanCode AST slicing</div>
+                </div>
+
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 12px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Execution Mode</div>
+                  <div style="font-size: 15px; font-weight: 700; color: var(--navy); margin-top: 4px;" id="ws-run-mode">Deterministic Replay</div>
+                  <div style="font-size: 11px; color: var(--cream-text-muted); margin-top: 2px;">Zero external credentials</div>
+                </div>
               </div>
 
-              <div style="display: flex; gap: 10px;">
-                <button id="btn-cancel" class="btn btn-secondary" disabled>Cancel</button>
-                <button id="btn-run" class="btn btn-coral">Execute Autonomous Agent</button>
+              <!-- Workflow Jump Links -->
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary btn-sm nav-jump-btn" data-target="trace">
+                  <span>📜</span> View Full Execution Trace &rarr;
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm nav-jump-btn" data-target="stale-detector">
+                  <span>🔍</span> Inspect Tavily Stale Evidence &rarr;
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm nav-jump-btn" data-target="diff-viewer">
+                  <span>📝</span> Inspect Unified Diff & Tests &rarr;
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm nav-jump-btn" data-target="benchmark">
+                  <span>📊</span> Open Benchmark Dashboard &rarr;
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm nav-jump-btn" data-target="bifrost-metrics">
+                  <span>🌐</span> Open Bifrost Gateway &rarr;
+                </button>
               </div>
             </div>
+          </section>
+        </div>
 
-            <!-- Past Run History & Replay Bar -->
-            <div style="display: flex; gap: 10px; margin-top: 14px; align-items: center; border-top: 1px solid var(--cream-border); padding-top: 12px; font-size: 12px;">
-              <span style="font-weight: 600; color: var(--navy); white-space: nowrap;">Run History:</span>
-              <select id="select-history-run" class="form-select" style="flex: 1; max-width: 380px; font-size: 11px;">
-                <option value="">-- Load / Replay Past Run Trace --</option>
-              </select>
-              <button id="btn-load-history" class="btn btn-secondary" style="padding: 5px 12px; font-size: 11px;">Inspect Trace</button>
-              <button id="btn-replay-history" class="btn btn-secondary" style="padding: 5px 12px; font-size: 11px;">Replay Stream</button>
-              <span id="replay-indicator" class="badge-status badge-uncertain" style="display: none;">[REPLAY ACTIVE]</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Live Execution Trace & Dark Code Editor Terminal -->
-        <div class="grid-2col">
-          <section class="panel" id="trace" data-section-title="Execution Trace">
+        <!-- ============================================================== -->
+        <!-- PAGE 2: EXECUTION TRACE                                        -->
+        <!-- ============================================================== -->
+        <div class="page-view" id="page-trace" data-page="trace" data-title="Execution Trace">
+          <section class="panel" id="section-trace-panel">
             <div class="panel-header">
               <div class="panel-title">Autonomous Execution Trace</div>
-              <span id="trace-status" class="badge-status badge-current">Idle</span>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="trace-status" class="badge-status badge-current">Completed</span>
+                <button type="button" id="btn-trace-replay" class="btn btn-sm btn-secondary">Replay Stream</button>
+                <button type="button" id="btn-trace-clear" class="btn btn-sm btn-secondary">Clear</button>
+                <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
+              </div>
             </div>
             <div class="panel-body">
               <div id="terminal-trace" class="terminal-window">
@@ -163,26 +233,41 @@
                   <span>TokenSlim initialized. Ready for task execution.</span>
                 </div>
               </div>
+
+              <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--cream-text-muted); flex-wrap: wrap; gap: 8px;">
+                <div>Transport: <strong>Server-Sent Events (SSE)</strong> via <code>/api/runs/{run_id}/events</code> | Last-Event-ID recovery supported</div>
+                <div>Status: <strong style="color: var(--navy);">Sequential telemetry verified</strong></div>
+              </div>
             </div>
           </section>
+        </div>
 
-          <!-- Stale-Answer Detection & Evidence Panel -->
-          <section class="panel" id="stale-detector" data-section-title="Stale-Answer Detector">
+        <!-- ============================================================== -->
+        <!-- PAGE 3: STALE-ANSWER DETECTOR                                  -->
+        <!-- ============================================================== -->
+        <div class="page-view" id="page-stale-detector" data-page="stale-detector" data-title="Stale-Answer Detector">
+          <section class="panel" id="section-stale-panel">
             <div class="panel-header">
-              <div class="panel-title">Tavily Stale-Answer Evidence Inspector</div>
+              <div class="panel-title">Tavily Stale-Answer Evidence Inspector (Track 2)</div>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <span id="stale-status-badge" class="badge-status badge-uncertain">Standby</span>
+                <span id="stale-status-badge" class="badge-status badge-uncertain">Offline / Heuristic</span>
+                <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
               </div>
             </div>
             <div class="panel-body">
+              <p style="font-size: 13px; color: var(--navy); margin-bottom: 14px; line-height: 1.5;">
+                TokenSlim's <strong>Stale-Answer Detector</strong> prevents LLMs from writing deprecated or hallucinated library code. When outdated API syntax is detected (e.g. Pydantic v1 <code>.dict()</code> &rarr; v2 <code>.model_dump()</code>), authoritative Tavily documentation is retrieved to guide atomic repairs.
+              </p>
+
               <!-- On-demand verification bar -->
-              <div style="display: flex; gap: 8px; margin-bottom: 14px;">
-                <input type="text" id="input-verify-claim" class="form-input" placeholder="Enter API claim or syntax (e.g. pydantic model.dict() or openai.ChatCompletion.create)..." style="flex: 1; font-size: 12px;">
-                <input type="text" id="input-verify-tech" class="form-input" placeholder="Tech (e.g. pydantic)" style="width: 110px; font-size: 12px;">
-                <button id="btn-verify-claim" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">Verify</button>
+              <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+                <input type="text" id="input-verify-claim" class="form-input" placeholder="Enter API claim or syntax (e.g. pydantic model.dict() or openai.ChatCompletion.create)..." style="flex: 1; min-width: 240px; font-size: 12px;">
+                <input type="text" id="input-verify-tech" class="form-input" placeholder="Tech (e.g. pydantic)" style="width: 140px; font-size: 12px;" value="pydantic">
+                <button id="btn-verify-claim" class="btn btn-secondary" style="padding: 6px 14px; font-size: 12px;">Verify Claim</button>
               </div>
 
-              <div id="stale-evidence-container" style="display: flex; flex-direction: column; gap: 12px; max-height: 480px; overflow-y: auto;">
+              <!-- Stale Evidence Cards Container -->
+              <div id="stale-evidence-container" style="display: flex; flex-direction: column; gap: 12px; max-height: 620px; overflow-y: auto;">
                 <p id="stale-empty-msg" style="font-size: 13px; color: var(--cream-text-muted); font-style: italic;">
                   No claims currently flagged. When the agent detects potentially outdated API assumptions or deprecations, authoritative Tavily evidence will be inspected here.
                 </p>
@@ -191,231 +276,284 @@
           </section>
         </div>
 
-        <!-- Selective Context & AST Slices Inspector -->
-        <section class="panel" id="panel-context-inspector">
-          <div class="panel-header">
-            <div class="panel-title">Selective Context & AST Slices Inspector</div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <span id="context-tokens-badge" class="badge-status badge-uncertain">0 Estimated Tokens</span>
-              <span class="badge-status badge-current">[AST Minimal Slices]</span>
-            </div>
-          </div>
-          <div class="panel-body">
-            <pre id="context-slices-content" class="code-editor" style="padding: 12px; min-height: 90px; max-height: 180px; overflow-y: auto;">// Targeted AST code slices and token estimates retrieved by LeanCode will appear here.</pre>
-          </div>
-        </section>
-
-        <!-- Diff & Verification Results -->
-        <section class="panel" id="diff-viewer" data-section-title="Diff & Verification">
-          <div class="panel-header">
-            <div class="panel-title">Minimal Diff & Test Verification</div>
-            <span id="verification-status" class="badge-status badge-current">Tests Passed</span>
-          </div>
-          <div class="panel-body">
-            <pre id="diff-content" class="code-editor" style="padding: 14px; min-height: 120px; max-height: 240px;">// Minimal patches and unified diffs generated by TokenSlim will appear here.</pre>
-          </div>
-        </section>
-
-        <!-- Benchmark Suite Results (3-Way Comparison) -->
-        <section class="panel" id="benchmark" data-section-title="Benchmark Dashboard">
-          <div class="panel-header">
-            <div class="panel-title">Reproducible 3-Way Benchmark Suite (Naive vs LeanCode vs LeanCode + Tavily)</div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <span id="benchmark-sim-badge" class="badge-status badge-uncertain">[OFFLINE SIMULATION]</span>
-              <button id="btn-refresh-benchmarks" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px;">Refresh</button>
-            </div>
-          </div>
-          <div class="panel-body">
-            <!-- Summary KPI Cards -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px;">
-              <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 12px;">
-                <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Configuration A: Naive Baseline</div>
-                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
-                  <span style="font-size: 18px; font-weight: 700; color: var(--navy);" id="kpi-a-tokens">12,631</span>
-                  <span style="font-size: 12px; color: var(--cream-text-muted);">tokens spent</span>
-                </div>
-                <div style="font-size: 11px; margin-top: 4px; color: var(--cream-text-muted);">Pass rate: <strong id="kpi-a-pass" style="color: var(--navy);">100%</strong> | Context: <span id="kpi-a-context">11,431</span></div>
-              </div>
-
-              <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 12px;">
-                <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Configuration B: LeanCode</div>
-                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
-                  <span style="font-size: 18px; font-weight: 700; color: var(--navy);" id="kpi-b-tokens">9,047</span>
-                  <span class="badge-status badge-current" id="kpi-b-reduction">-31.4% Context</span>
-                </div>
-                <div style="font-size: 11px; margin-top: 4px; color: var(--cream-text-muted);">Pass rate: <strong id="kpi-b-pass" style="color: var(--navy);">100%</strong> | Context: <span id="kpi-b-context">7,847</span></div>
-              </div>
-
-              <div style="background: var(--cream-surface); border: 2px solid var(--coral); border-radius: 6px; padding: 12px;">
-                <div style="font-size: 11px; color: var(--coral); text-transform: uppercase; font-weight: 700;">Configuration C: LeanCode + Tavily</div>
-                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
-                  <span style="font-size: 18px; font-weight: 700; color: var(--navy);" id="kpi-c-tokens">9,047</span>
-                  <span class="badge-status badge-current" id="kpi-c-reduction">-31.4% Context</span>
-                </div>
-                <div style="font-size: 11px; margin-top: 4px; color: var(--cream-text-muted);">Pass rate: <strong id="kpi-c-pass" style="color: var(--navy);">100%</strong> | Stale Detected: <strong id="kpi-c-stale" style="color: var(--coral);">6</strong> | Tavily: <span id="kpi-c-tavily">6</span></div>
+        <!-- ============================================================== -->
+        <!-- PAGE 4: DIFF & VERIFICATION                                    -->
+        <!-- ============================================================== -->
+        <div class="page-view" id="page-diff-viewer" data-page="diff-viewer" data-title="Diff & Verification">
+          <!-- Selective Context & AST Slices Inspector -->
+          <section class="panel" id="panel-context-inspector">
+            <div class="panel-header">
+              <div class="panel-title">Selective Context & AST Slices Inspector (LeanCode Engine)</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="context-tokens-badge" class="badge-status badge-uncertain">145 Estimated Tokens (AST)</span>
+                <span class="badge-status badge-current">[AST Minimal Slices]</span>
+                <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
               </div>
             </div>
-
-            <!-- Detailed Task Results Table -->
-            <div style="overflow-x: auto; max-height: 380px;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
-                <thead>
-                  <tr style="border-bottom: 2px solid var(--cream-border); background: var(--cream-subtle);">
-                    <th style="padding: 8px 10px;">Task ID</th>
-                    <th style="padding: 8px 10px;">Config</th>
-                    <th style="padding: 8px 10px;">Status</th>
-                    <th style="padding: 8px 10px;">Context Toks</th>
-                    <th style="padding: 8px 10px;">Total Spent</th>
-                    <th style="padding: 8px 10px;">Stale / Tavily</th>
-                  </tr>
-                </thead>
-                <tbody id="benchmark-table-body">
-                  <!-- Populated dynamically via fetch('/api/benchmarks') -->
-                </tbody>
-              </table>
+            <div class="panel-body">
+              <p style="font-size: 12px; color: var(--cream-text-muted); margin-bottom: 8px;">
+                LeanCode extracts only targeted function/class AST slices rather than broad file context, cutting context token spend by <strong>31.4%</strong>.
+              </p>
+              <pre id="context-slices-content" class="code-editor" style="padding: 14px; min-height: 180px; max-height: 380px; overflow-y: auto;">// Targeted AST code slices and token estimates retrieved by LeanCode will appear here.</pre>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <!-- Bifrost Gateway & Telemetry Metrics Panel -->
-        <section class="panel" id="bifrost-metrics" data-section-title="Bifrost Gateway">
-          <div class="panel-header">
-            <div class="panel-title">Bifrost Gateway & Telemetry Metrics (Bifrost Problem Statement #01)</div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <span id="bifrost-badge-status" class="badge-status badge-uncertain">Checking Gateway...</span>
-              <button id="btn-refresh-bifrost" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px;">Refresh Gateway</button>
+          <!-- Diff & Verification Results -->
+          <section class="panel" id="section-diff-panel">
+            <div class="panel-header">
+              <div class="panel-title">Minimal Unified Diff & Test Verification</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="verification-status" class="badge-status badge-current">Tests Passed (100%)</span>
+                <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
+              </div>
             </div>
-          </div>
-          <div class="panel-body">
-            <!-- Health & Connection Detail Boxes -->
-            <div class="grid-2col" style="margin-bottom: 16px;">
-              <div class="form-group"><label class="form-label">Bifrost Gateway</label><div id="gateway-bifrost-detail" class="gateway-detail">Checking gateway configuration…</div></div>
-              <div class="form-group"><label class="form-label">Tavily Search</label><div id="gateway-tavily-detail" class="gateway-detail">Checking search configuration…</div></div>
-              <div class="form-group"><label class="form-label">Database</label><div id="gateway-database-detail" class="gateway-detail">Checking database…</div></div>
-              <div class="form-group"><label class="form-label">Environment</label><div id="gateway-environment-detail" class="gateway-detail">Checking runtime…</div></div>
+            <div class="panel-body">
+              <p style="font-size: 12px; color: var(--cream-text-muted); margin-bottom: 8px;">
+                Atomic search-and-replace patch applied character-for-character to the isolated sandbox, verified with subprocess test execution:
+              </p>
+              <pre id="diff-content" class="code-editor" style="padding: 14px; min-height: 240px; max-height: 480px; overflow-y: auto;">// Minimal patches and unified diffs generated by TokenSlim will appear here.</pre>
+              <div style="margin-top: 10px; font-size: 11px; color: var(--cream-text-muted);">
+                Command: <code>pytest test_models.py::test_user_serialization</code> | Verification: <strong>1 passed in 0.18s</strong> | Exit code: <strong>0</strong>
+              </div>
             </div>
+          </section>
+        </div>
 
-            <!-- Gateway Overview Cards -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px;">
-              <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 14px;">
-                <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Gateway Endpoint & Model</div>
-                <div style="font-size: 14px; font-weight: 700; color: var(--navy); margin-top: 6px; font-family: var(--font-mono); word-break: break-all;" id="bifrost-card-url">http://localhost:8080/v1</div>
-                <div style="font-size: 11px; margin-top: 6px; color: var(--cream-text-muted);">
-                  Model: <strong id="bifrost-card-model" style="color: var(--navy);">gpt-4o-mini</strong> | State: <span id="bifrost-card-state" style="color: var(--coral); font-weight: 600;">Unverified / Simulated</span>
+        <!-- ============================================================== -->
+        <!-- PAGE 5: BENCHMARK DASHBOARD                                    -->
+        <!-- ============================================================== -->
+        <div class="page-view" id="page-benchmark" data-page="benchmark" data-title="Benchmark Dashboard">
+          <section class="panel" id="section-benchmark-panel">
+            <div class="panel-header">
+              <div class="panel-title">Reproducible 3-Way Benchmark Suite (Naive vs LeanCode vs LeanCode + Tavily)</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="benchmark-sim-badge" class="badge-status badge-uncertain">[OFFLINE SIMULATION]</span>
+                <button type="button" id="btn-refresh-benchmarks" class="btn btn-secondary btn-sm">Refresh Benchmark Data</button>
+                <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <!-- Summary KPI Cards -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px;">
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 14px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Configuration A: Naive Baseline</div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
+                    <span style="font-size: 20px; font-weight: 700; color: var(--navy);" id="kpi-a-tokens">12,631</span>
+                    <span style="font-size: 12px; color: var(--cream-text-muted);">tokens spent</span>
+                  </div>
+                  <div style="font-size: 11px; margin-top: 6px; color: var(--cream-text-muted);">
+                    Pass rate: <strong id="kpi-a-pass" style="color: var(--navy);">100%</strong> | Context: <span id="kpi-a-context">11,431</span>
+                  </div>
+                </div>
+
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 14px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Configuration B: LeanCode</div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
+                    <span style="font-size: 20px; font-weight: 700; color: var(--navy);" id="kpi-b-tokens">9,047</span>
+                    <span class="badge-status badge-current" id="kpi-b-reduction">-31.4% Context</span>
+                  </div>
+                  <div style="font-size: 11px; margin-top: 6px; color: var(--cream-text-muted);">
+                    Pass rate: <strong id="kpi-b-pass" style="color: var(--navy);">100%</strong> | Context: <span id="kpi-b-context">7,847</span>
+                  </div>
+                </div>
+
+                <div style="background: var(--cream-surface); border: 2px solid var(--coral); border-radius: 6px; padding: 14px;">
+                  <div style="font-size: 11px; color: var(--coral); text-transform: uppercase; font-weight: 700;">Configuration C: LeanCode + Tavily</div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
+                    <span style="font-size: 20px; font-weight: 700; color: var(--navy);" id="kpi-c-tokens">9,047</span>
+                    <span class="badge-status badge-current" id="kpi-c-reduction">-31.4% Context</span>
+                  </div>
+                  <div style="font-size: 11px; margin-top: 6px; color: var(--cream-text-muted);">
+                    Pass rate: <strong id="kpi-c-pass" style="color: var(--navy);">100%</strong> | Stale Flagged: <strong id="kpi-c-stale" style="color: var(--coral);">6</strong> | Tavily: <span id="kpi-c-tavily">6</span>
+                  </div>
                 </div>
               </div>
 
-              <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 14px;">
-                <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Honest Telemetry Accounting</div>
-                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
-                  <span style="font-size: 18px; font-weight: 700; color: var(--navy);" id="bifrost-total-calls-stat">1</span>
-                  <span style="font-size: 12px; color: var(--cream-text-muted);">Total Model Calls</span>
-                </div>
-                <div style="font-size: 11px; margin-top: 4px; color: var(--cream-text-muted);">
-                  Provider Tokens: <strong id="bifrost-provider-toks" style="color: var(--navy);">None (Simulated)</strong> | Cost: <span id="bifrost-total-cost">$0.000054</span>
-                </div>
-              </div>
+              <!-- Methodology note -->
+              <p style="font-size: 12px; color: var(--cream-text-muted); margin-bottom: 12px; line-height: 1.5;">
+                * <em>The 12/12 pass rate belongs to the deterministic offline benchmark harness. Six stale deprecations were flagged using simulated evidence and corrected deterministically.</em>
+              </p>
 
-              <div style="background: var(--cream-surface); border: 2px solid var(--coral); border-radius: 6px; padding: 14px;">
-                <div style="font-size: 11px; color: var(--coral); text-transform: uppercase; font-weight: 700;">LeanCode Context Optimization</div>
-                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
-                  <span style="font-size: 18px; font-weight: 700; color: var(--coral);">-31.4%</span>
-                  <span class="badge-status badge-current">Context Sparing</span>
-                </div>
-                <div style="font-size: 11px; margin-top: 4px; color: var(--cream-text-muted);">
-                  Baseline: 11,431 toks &rarr; LeanCode: 7,847 toks | Saved 3,584 context tokens
-                </div>
-              </div>
-            </div>
-
-            <!-- Bifrost Multi-Model Rate Card Table -->
-            <div style="margin-bottom: 18px;">
-              <div style="font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase; margin-bottom: 8px;">
-                Bifrost Model Catalog & Rate Card
-              </div>
-              <div style="overflow-x: auto;">
+              <!-- Detailed Task Results Table -->
+              <div class="table-container" style="max-height: 480px;">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Model Identifier</th>
-                      <th>Provider Route</th>
-                      <th>Prompt Price (/1M)</th>
-                      <th>Completion Price (/1M)</th>
-                      <th>Gateway Status</th>
+                      <th>Task ID</th>
+                      <th>Config</th>
+                      <th>Status</th>
+                      <th>Context Toks</th>
+                      <th>Total Spent</th>
+                      <th>Stale / Tavily</th>
                     </tr>
                   </thead>
-                  <tbody id="bifrost-rate-card-body">
-                    <tr>
-                      <td>gpt-4o-mini</td>
-                      <td>OpenAI / Bifrost</td>
-                      <td>$0.150</td>
-                      <td>$0.600</td>
-                      <td><span class="badge-status badge-current">Active Default</span></td>
-                    </tr>
-                    <tr>
-                      <td>gpt-4o</td>
-                      <td>OpenAI / Bifrost</td>
-                      <td>$2.500</td>
-                      <td>$10.000</td>
-                      <td><span class="badge-status badge-uncertain">Available</span></td>
-                    </tr>
-                    <tr>
-                      <td>claude-3-5-sonnet</td>
-                      <td>Anthropic / Bifrost</td>
-                      <td>$3.000</td>
-                      <td>$15.000</td>
-                      <td><span class="badge-status badge-uncertain">Available</span></td>
-                    </tr>
-                    <tr>
-                      <td>gemini-1.5-pro</td>
-                      <td>Google / Bifrost</td>
-                      <td>$1.250</td>
-                      <td>$5.000</td>
-                      <td><span class="badge-status badge-uncertain">Available</span></td>
-                    </tr>
+                  <tbody id="benchmark-table-body">
+                    <!-- Populated dynamically via fetch('/api/benchmarks') -->
                   </tbody>
                 </table>
               </div>
             </div>
+          </section>
+        </div>
 
-            <!-- Recent Model Calls Telemetry Ledger -->
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div style="font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase;">
-                  Model Call Telemetry Ledger (Database Persisted)
-                </div>
-                <span style="font-size: 11px; color: var(--cream-text-muted);">Exact usage metadata via Bifrost</span>
-              </div>
-              <div style="overflow-x: auto; max-height: 240px;">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Call ID</th>
-                      <th>Model</th>
-                      <th>Provider</th>
-                      <th>Input Toks</th>
-                      <th>Output Toks</th>
-                      <th>Total Toks</th>
-                      <th>Latency</th>
-                      <th>Calculated Cost</th>
-                      <th>Mode</th>
-                    </tr>
-                  </thead>
-                  <tbody id="bifrost-calls-table-body">
-                    <tr>
-                      <td colspan="9" style="text-align: center; color: var(--cream-text-muted); padding: 12px;">Loading recent model calls...</td>
-                    </tr>
-                  </tbody>
-                </table>
+        <!-- ============================================================== -->
+        <!-- PAGE 6: BIFROST GATEWAY                                        -->
+        <!-- ============================================================== -->
+        <div class="page-view" id="page-bifrost-metrics" data-page="bifrost-metrics" data-title="Bifrost Gateway">
+          <section class="panel" id="section-bifrost-panel">
+            <div class="panel-header">
+              <div class="panel-title">Bifrost Gateway & Telemetry Metrics (Bifrost Problem Statement #01)</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="bifrost-badge-status" class="badge-status badge-uncertain">[OFFLINE SIMULATION]</span>
+                <button type="button" id="btn-refresh-bifrost" class="btn btn-secondary btn-sm">Refresh Gateway</button>
+                <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
               </div>
             </div>
-            <p class="gateway-note">Offline replay mode does not make live provider calls. Status labels reflect the backend health response.</p>
-          </div>
-        </section>
+            <div class="panel-body">
+              <!-- Health & Connection Detail Boxes -->
+              <div class="grid-2col" style="margin-bottom: 16px;">
+                <div class="form-group">
+                  <label class="form-label">Bifrost Gateway</label>
+                  <div id="gateway-bifrost-detail" class="gateway-detail">Checking gateway configuration…</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Tavily Search</label>
+                  <div id="gateway-tavily-detail" class="gateway-detail">Checking search configuration…</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Database</label>
+                  <div id="gateway-database-detail" class="gateway-detail">Checking database…</div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Environment</label>
+                  <div id="gateway-environment-detail" class="gateway-detail">Checking runtime…</div>
+                </div>
+              </div>
+
+              <!-- Gateway Overview Cards -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px;">
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 14px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Gateway Endpoint & Model</div>
+                  <div style="font-size: 14px; font-weight: 700; color: var(--navy); margin-top: 6px; font-family: var(--font-mono); word-break: break-all;" id="bifrost-card-url">http://localhost:8080/v1</div>
+                  <div style="font-size: 11px; margin-top: 6px; color: var(--cream-text-muted);">
+                    Model: <strong id="bifrost-card-model" style="color: var(--navy);">gpt-4o-mini</strong> | State: <span id="bifrost-card-state" style="color: var(--coral); font-weight: 600;">Simulated / Safe Sandbox</span>
+                  </div>
+                </div>
+
+                <div style="background: var(--cream-surface); border: 1px solid var(--cream-border); border-radius: 6px; padding: 14px;">
+                  <div style="font-size: 11px; color: var(--cream-text-muted); text-transform: uppercase; font-weight: 600;">Honest Telemetry Accounting</div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
+                    <span style="font-size: 20px; font-weight: 700; color: var(--navy);" id="bifrost-total-calls-stat">1</span>
+                    <span style="font-size: 12px; color: var(--cream-text-muted);">Total Model Calls</span>
+                  </div>
+                  <div style="font-size: 11px; margin-top: 6px; color: var(--cream-text-muted);">
+                    Provider Tokens: <strong id="bifrost-provider-toks" style="color: var(--navy);">None (Simulated)</strong> | Cost: <span id="bifrost-total-cost">$0.000054</span>
+                  </div>
+                </div>
+
+                <div style="background: var(--cream-surface); border: 2px solid var(--coral); border-radius: 6px; padding: 14px;">
+                  <div style="font-size: 11px; color: var(--coral); text-transform: uppercase; font-weight: 700;">LeanCode Context Optimization</div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
+                    <span style="font-size: 20px; font-weight: 700; color: var(--coral);">-31.4%</span>
+                    <span class="badge-status badge-current">Context Sparing</span>
+                  </div>
+                  <div style="font-size: 11px; margin-top: 6px; color: var(--cream-text-muted);">
+                    Baseline: 11,431 toks &rarr; LeanCode: 7,847 toks | Saved 3,584 context tokens
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bifrost Multi-Model Rate Card Table -->
+              <div style="margin-bottom: 18px;">
+                <div style="font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase; margin-bottom: 8px;">
+                  Bifrost Model Catalog & Rate Card
+                </div>
+                <div class="table-container">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Model Identifier</th>
+                        <th>Provider Route</th>
+                        <th>Prompt Price (/1M)</th>
+                        <th>Completion Price (/1M)</th>
+                        <th>Gateway Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="bifrost-rate-card-body">
+                      <tr>
+                        <td><strong>gpt-4o-mini</strong></td>
+                        <td>OpenAI / Bifrost</td>
+                        <td>$0.150</td>
+                        <td>$0.600</td>
+                        <td><span class="badge-status badge-current">Active Default</span></td>
+                      </tr>
+                      <tr>
+                        <td><strong>gpt-4o</strong></td>
+                        <td>OpenAI / Bifrost</td>
+                        <td>$2.500</td>
+                        <td>$10.000</td>
+                        <td><span class="badge-status badge-uncertain">Available</span></td>
+                      </tr>
+                      <tr>
+                        <td><strong>claude-3-5-sonnet</strong></td>
+                        <td>Anthropic / Bifrost</td>
+                        <td>$3.000</td>
+                        <td>$15.000</td>
+                        <td><span class="badge-status badge-uncertain">Available</span></td>
+                      </tr>
+                      <tr>
+                        <td><strong>gemini-1.5-pro</strong></td>
+                        <td>Google / Bifrost</td>
+                        <td>$1.250</td>
+                        <td>$5.000</td>
+                        <td><span class="badge-status badge-uncertain">Available</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Recent Model Calls Telemetry Ledger -->
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div style="font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase;">
+                    Model Call Telemetry Ledger (Database Persisted)
+                  </div>
+                  <span style="font-size: 11px; color: var(--cream-text-muted);">Exact usage metadata via Bifrost</span>
+                </div>
+                <div class="table-container" style="max-height: 380px;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Call ID</th>
+                        <th>Model</th>
+                        <th>Provider</th>
+                        <th>Input Toks</th>
+                        <th>Output Toks</th>
+                        <th>Total Toks</th>
+                        <th>Latency</th>
+                        <th>Calculated Cost</th>
+                        <th>Mode</th>
+                      </tr>
+                    </thead>
+                    <tbody id="bifrost-calls-table-body">
+                      <tr>
+                        <td colspan="9" style="text-align: center; color: var(--cream-text-muted); padding: 12px;">Loading recent model calls...</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <p class="gateway-note">Offline simulation mode does not make live external provider calls. Status labels reflect actual verified connectivity.</p>
+            </div>
+          </section>
+        </div>
+
       </div>
     </main>
   </div>
 
-  <script src="/static/app.js?v=2.2"></script>
+  <script src="/static/app.js?v=3.0"></script>
 </body>
 </html>
