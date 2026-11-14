@@ -312,9 +312,9 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadBenchmarkData() {
     try {
       const resp = await fetch('/api/benchmarks');
-      if (!resp.ok) return;
+      if (!resp.ok) throw new Error(`Benchmark request failed: HTTP ${resp.status}`);
       const data = await resp.json();
-      if (!data.configurations) return;
+      if (!data.configurations) throw new Error('Benchmark data has no configurations field.');
 
       const cfgs = data.configurations;
       if (cfgs.naive_baseline) {
@@ -357,6 +357,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (e) {
       console.warn('Failed to load benchmark data:', e);
+      const tbody = document.getElementById('benchmark-table-body');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:12px;">Benchmark results could not be loaded. Use Refresh or check the deployment logs.</td></tr>';
     }
   }
 
@@ -454,6 +456,14 @@ document.addEventListener('DOMContentLoaded', () => {
           tavilyEl.textContent = tStatus === 'reachable' ? 'Live API' : (tStatus === 'unconfigured' ? 'Offline / Heuristic' : 'Simulated');
           tavilyEl.style.color = tStatus === 'reachable' ? '#5cdb95' : 'var(--coral)';
         }
+        const setDetail = (id, value) => {
+          const element = document.getElementById(id);
+          if (element) element.textContent = value || 'Not reported';
+        };
+        setDetail('gateway-bifrost-detail', `${data.bifrost?.status || 'unknown'} — ${data.bifrost?.detail || 'No details'} (model: ${data.bifrost?.model || 'not set'})`);
+        setDetail('gateway-tavily-detail', `${data.tavily?.status || 'unknown'} — ${data.tavily?.detail || 'No details'}`);
+        setDetail('gateway-database-detail', `${data.database?.status || 'unknown'} — ${data.database?.detail || 'No details'}`);
+        setDetail('gateway-environment-detail', data.environment || 'Not reported');
       }
     } catch (e) {
       console.error('Failed to probe gateway health:', e);
@@ -463,11 +473,39 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshRunHistory();
   checkGatewayHealth();
 
-  // Navigation tab interaction
-  document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
+  // Sidebar navigation: scroll to real sections and keep the active item in sync.
+  const navItems = Array.from(document.querySelectorAll('.nav-item'));
+  const sections = navItems.map(item => document.querySelector(item.getAttribute('href'))).filter(Boolean);
+  navItems.forEach(item => {
+    item.addEventListener('click', event => {
+      const target = document.querySelector(item.getAttribute('href'));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      history.replaceState(null, '', item.getAttribute('href'));
+      navItems.forEach(link => link.classList.toggle('active', link === item));
+      const title = document.getElementById('view-title');
+      if (title) title.textContent = target.dataset.sectionTitle || item.textContent.trim();
     });
   });
+  if ('IntersectionObserver' in window) {
+    const sectionObserver = new IntersectionObserver(entries => {
+      const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      const activeLink = navItems.find(item => item.getAttribute('href') === '#' + visible.target.id);
+      if (!activeLink) return;
+      navItems.forEach(item => item.classList.toggle('active', item === activeLink));
+      const title = document.getElementById('view-title');
+      if (title) title.textContent = visible.target.dataset.sectionTitle || activeLink.textContent.trim();
+    }, { root: document.querySelector('.workspace-canvas'), threshold: [0.15, 0.35, 0.6] });
+    sections.forEach(section => sectionObserver.observe(section));
+  }
+  if (location.hash) {
+    const initialTarget = document.querySelector(location.hash);
+    if (initialTarget) {
+      setTimeout(() => initialTarget.scrollIntoView({ block: 'start' }), 50);
+      const activeLink = navItems.find(item => item.getAttribute('href') === location.hash);
+      if (activeLink) navItems.forEach(item => item.classList.toggle('active', item === activeLink));
+    }
+  }
 });
