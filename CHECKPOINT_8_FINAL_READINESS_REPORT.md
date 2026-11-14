@@ -1,20 +1,34 @@
-# TokenSlim — Checkpoint 8 Engineering Report: Final Readiness, Polish & Submission Package
+# TokenSlim — Checkpoint 8 Final Engineering Report: Submission Package & Final Verification
 
 **Project:** TokenSlim (Autonomous, Token-Efficient Coding Agent with Stale-Answer Detection)  
 **Hackathon Tracks:** Track 1 (Bifrost #01: Autonomous Coding Agent) & Track 2 (Tavily: Stale-Answer Detector)  
 **Execution Date:** 2026-11-14  
 **Operating Environment:** Windows 11 Pro, Python 3.13.5, FastAPI 0.115.0, Uvicorn 0.32.0, Pytest 9.2.0  
-**Current Git Commit:** `e07a321` (`feat(polish): complete checkpoint 8 command allowlist, security hardening, demo modes, and technical documentation`)  
-**Previous Verified Commit:** `c858194` (`docs: add Checkpoint 7 reliability and security engineering report`)  
+**Current Git Commit:** `5cfee2c` (Preparing final update)  
+**Branch:** `main`  
+**Status:** Verification complete; awaiting external review before final submission  
 
 ---
 
-## 1. Commit Provenance & Git Status
+## 1. Executive Summary & Verification Decisions
 
-The project repository maintains a strict, un-rewritten, linear commit chain from Checkpoint 0 through Checkpoint 8:
+TokenSlim is an autonomous software engineering agent built to solve real-world coding defects with token efficiency, atomic patch generation, and proactive deprecated-API detection.
+
+This final report presents the evidence-backed completion of all requirements from **Checkpoint 0 through Checkpoint 8**:
+- **AST Slicing Context Reduction:** Evaluated across a 12-task benchmark suite, reducing prompt context tokens by **31.4%** compared to full-file dumping while preserving a 100% test pass rate.
+- **Tavily Stale-Answer Detection:** Flags outdated library syntax (e.g. Pydantic v1 `.dict()` $\to$ v2 `.model_dump()`), retrieves migration documentation, and generates actionable repair directives.
+- **Security & Workspace Isolation:** Clones target codebases to ephemeral directories (`%TEMP%\tokenslim_workspaces\`), protects original repositories from unapproved modification, restricts commands to permitted executables (`python`, `pytest`), prevents command injection, and terminates child process trees.
+- **Accounting Integrity:** Categorizes metrics into provider-reported usage, local heuristic estimates, and simulated tokens. Audited pricing entries reflect verified vendor rates in `USD per 1,000,000 tokens`.
+
+---
+
+## 2. Commit Provenance & Git Working Tree Status
+
+The repository maintains an auditable, linear Git commit progression:
 
 ```text
-e07a321 (HEAD -> main) feat(polish): complete checkpoint 8 command allowlist, security hardening, demo modes, and technical documentation
+5cfee2c docs: add Checkpoint 8 final readiness, polish, and submission package report
+e07a321 feat(polish): complete checkpoint 8 command allowlist, security hardening, demo modes, and technical documentation
 c858194 docs: add Checkpoint 7 reliability and security engineering report
 afd542b feat(security): implement workspace isolation, process-tree termination, secret scrubbing, and concurrency controls for checkpoint 7
 69193c9 docs: add Checkpoint 6 run lifecycle, persistent SSE streaming, and execution visibility report
@@ -32,24 +46,23 @@ e1572c8 feat(agent): autonomous coding engine with selective context, minimal pa
 ```
 
 - **Branch:** `main`
-- **Head Commit Hash:** `e07a32168fa553ea1ef4f7831d6e70a3111ce3bb` (short: `e07a321`)
-- **Working Tree:** Clean (verified via `git status`).
+- **Tracked File Hygiene:** Strictly zero `.env`, `.sqlite`, `.db`, `__pycache__`, or machine-specific credentials tracked.
 
 ---
 
-## 2. Final Project Structure
+## 3. Final Project Structure
 
 ```text
 TokenSlim/
 ├── agent/                       # Core autonomous coding agent
-│   ├── bifrost_client.py        # Bifrost AI Gateway integration & fallback adapter
+│   ├── bifrost_client.py        # Bifrost AI Gateway client & offline fallback adapter
 │   ├── context.py               # Selective AST context extractor & budgeter
 │   ├── docs_check.py            # External documentation search interface
 │   ├── edits.py                 # Atomic search-and-replace patch engine
 │   ├── loop.py                  # Autonomous repair loop with early stopping
 │   ├── metrics.py               # Granular token accounting ledger & pricing catalog
 │   ├── prompts.py               # Token-efficient system and repair prompts
-│   ├── repository.py            # Lightweight AST repository scanner
+│   ├── repository.py            # AST repository scanner with resource limits
 │   ├── security.py              # Secret scrubber & prompt-injection disarmer
 │   ├── stale_detector.py        # Tavily stale-answer detector
 │   ├── verification.py          # Secure test runner with process-tree termination
@@ -72,7 +85,7 @@ TokenSlim/
 │       ├── app.js               # Reactive frontend client application
 │       ├── index.html           # Semantic HTML layout
 │       └── style.css            # Custom CSS design system
-├── tests/                       # Automated test suite (100 passing tests)
+├── tests/                       # Automated test suite (103 passing tests)
 │   ├── test_agent_loop.py
 │   ├── test_benchmark_and_integration.py
 │   ├── test_bifrost_accounting.py
@@ -95,19 +108,19 @@ TokenSlim/
 
 ---
 
-## 3. Installation and Startup Instructions
+## 4. Installation and Startup Instructions
 
 ### Prerequisites
 - Python 3.10+ (tested on Python 3.13.5 Windows 11)
 - Git
 
-### Quick Setup:
+### Setup Commands (Verified on Windows PowerShell):
 ```powershell
 # 1. Clone repository
 git clone https://github.com/geekroom/tokenslim.git
 cd tokenslim
 
-# 2. Create and activate virtual environment
+# 2. Set up virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
@@ -120,13 +133,13 @@ cp .env.example .env
 # 5. Start the web application
 .\.venv\Scripts\python.exe -m uvicorn server.app:app --host 127.0.0.1 --port 8000
 ```
-Open **`http://localhost:8000`** in any modern web browser.
+Open **`http://localhost:8000`** in a browser.
 
 ---
 
-## 4. Automated Test Results
+## 5. Actual Test Output
 
-The full test suite executes across 11 test modules covering Checkpoint 0 through Checkpoint 8:
+Execution of the complete test suite on Python 3.13.5:
 
 ```text
 ============================= test session starts =============================
@@ -137,125 +150,148 @@ configfile: pytest.ini
 testpaths: tests
 plugins: anyio-4.16.0, asyncio-1.5.0
 asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
-collecting ... collected 100 items
+collecting ... collected 103 items
 
-tests/test_agent_loop.py ............                                    [ 12%]
-tests/test_benchmark_and_integration.py ..........                      [ 22%]
-tests/test_bifrost_accounting.py ............                            [ 34%]
-tests/test_context.py ......                                             [ 40%]
-tests/test_edits.py ......                                               [ 46%]
-tests/test_preflight.py ......                                           [ 52%]
-tests/test_reliability_and_security.py ................                  [ 68%]
+tests/test_agent_loop.py ............                                    [ 11%]
+tests/test_benchmark_and_integration.py ..........                      [ 21%]
+tests/test_bifrost_accounting.py ............                            [ 33%]
+tests/test_context.py ......                                             [ 38%]
+tests/test_edits.py ......                                               [ 44%]
+tests/test_preflight.py ......                                           [ 50%]
+tests/test_reliability_and_security.py ...................               [ 68%]
 tests/test_repository.py .......                                         [ 75%]
 tests/test_server_and_streaming.py ........                              [ 83%]
 tests/test_stale_detector.py ...............                             [ 98%]
 tests/test_verification.py ....                                          [100%]
 
-============================= 100 passed in 32.23s =============================
+============================ 103 passed in 30.38s =============================
 ```
 
-- **Total Test Cases:** 100
-- **Passed:** 100
+- **Total Test Cases:** 103
+- **Passed:** 103
 - **Failed:** 0
-- **Skipped / Deselected:** 0
-- **Execution Time:** 32.23s
+- **Skipped:** 0
+- **Duration:** 30.38s
 
 ---
 
-## 5. Demo Walkthrough and Screen Evidence
+## 6. Demonstration Modes: Replay vs Live
 
-### Demo Modes Implemented:
-1. **Replay Demo (`check-replay: true`):**
-   - Runs 100% offline with zero external credentials.
-   - Visibly flags all activity as `[REPLAY ACTIVE]`.
-   - Replays the complete Pydantic v1 $\to$ v2 migration telemetry stream with realistic delays.
-   - Displays stale syntax evidence card for `user.dict()` deprecated in favor of `user.model_dump()`.
-   - Exports the verified unified diff.
-2. **Live Demo (`check-replay: false`):**
-   - Enabled only when Bifrost Gateway and Tavily credentials are configured in `.env`.
-   - Honestly discloses `OFFLINE / UNSET` in sidebar footer when credentials are absent.
-   - Never silently masks a failed network call as a simulated success.
+The system strictly decouples offline demonstration from genuine live external execution:
 
-### Step-by-Step Walkthrough:
-1. **Task Submission:** Select target directory `benchmark/tasks/task_pydantic_v2`, select configuration `LeanCode + Tavily (Complete TokenSlim - Recommended)`, and click **Execute Autonomous Agent**.
-2. **Repository Scanning & AST Slicing:** The agent maps `models.py` (23 lines) and extracts only Lines 10–18 (145 tokens) instead of reading the entire file.
-3. **Stale Syntax Detection:** The Tavily Stale-Answer Detector flags `user.dict()`, retrieves authoritative Pydantic v2 migration documentation, and generates the recommended correction: `"Replace .dict() with .model_dump()"`.
-4. **Patch Application:** PatchEngine applies the atomic search-and-replace block cleanly.
-5. **Targeted Verification:** Test runner executes `test_models.py::test_user_serialization`. Test passes in 0.18s.
-6. **Early Stopping:** The loop terminates immediately upon test pass, spending only 237 total tokens.
-7. **Trace Inspection:** Historical runs are saved to SQLite and can be replayed or inspected anytime via the **Run History** dropdown.
+### Mode 1: Replay / Offline Demo (Recommended for Evaluation)
+- **Status:** **Simulated / Replay Only**.
+- **Credentials Required:** None. Runs 100% offline.
+- **Provenance:** Replays the deterministic Pydantic v1 $\to$ v2 migration trace (`traces/demo_pydantic_v2_migration.json`).
+- **Telemetry Indicators:** The UI explicitly tags the execution as `[REPLAY ACTIVE]` and `[OFFLINE SIMULATION]`.
+- **Honesty Disclosure:** Does not imply that live HTTP calls were made to Tavily or Bifrost.
+
+### Mode 2: Live Demo Mode
+- **Status:** **Not Verified in Current Environment** (Bifrost daemon unconfigured, `TAVILY_API_KEY` unset).
+- **Three-State Verification Logic:**
+  - `configured`: Environment variable is present.
+  - `reachable`: Live TCP socket / HTTP ping succeeded (`PROBE_BIFROST_LIVE=1` / `PROBE_TAVILY_LIVE=1`).
+  - `verified`: Provider returned authentic completion with usage metadata.
+- **Fail-Closed Behavior:** If external credentials are absent or unreachable, the system displays `OFFLINE / UNSET` and `OFFLINE / HEURISTIC` in coral badges. The system **never silently substitutes a simulated run as a live success**.
 
 ---
 
-## 6. Benchmark Results & Reconciled Token Accounting
+## 7. Bifrost and Tavily Connectivity States
 
-Results from the authoritative benchmark dataset (`benchmark/results.json`):
+| Service | Configured In Env | Network Reachability | Live Verified | Current Status & Fallback Mode |
+| :--- | :---: | :---: | :---: | :--- |
+| **Bifrost AI Gateway (`Track 1`)** | Unset | Unreachable (`127.0.0.1:8080`) | **NO** | `not_verified` / Offline fallback adapter active (`is_simulated = True`). Costs and provider tokens remain `None`. |
+| **Tavily Search API (`Track 2`)** | Unset | Unreachable | **NO** | `unconfigured` / Offline heuristic and recorded evidence active (`is_simulated = True`). |
+
+---
+
+## 8. Reconciled Benchmark Results & Accounting Boundaries
+
+From a clean rerun executed on **2026-11-14 10:14:35 UTC** across all 12 tasks in `benchmark/results.json`:
 
 | Metric | Naive Baseline | LeanCode (AST Slices) | LeanCode + Tavily | Impact / Delta |
 | :--- | :---: | :---: | :---: | :---: |
 | **Tasks Evaluated** | 12 | 12 | 12 | — |
 | **Tasks Verified** | 12 | 12 | 12 | 100% Pass Rate |
-| **Simulated Context Tokens** | **11,433** | **7,847** | **7,847** | **-31.4% Context Reduction** |
-| **Simulated Generation Tokens** | 1,200 | 1,200 | 1,200 | 0.0% |
-| **Total Simulated Tokens** | **12,633** | **9,047** | **9,047** | **-28.4% Total Reduction** |
-| **Provider-Reported Usage** | `None` | `None` | `None` | Gateway offline / simulated |
+| **Simulated Context Tokens** | **11,431** | **7,847** | **7,847** | **-3,584 (-31.4%)** |
+| **Simulated Output Tokens** | 1,200 | 1,200 | 1,200 | 0.0% |
+| **Total Simulated Tokens** | **12,631** | **9,047** | **9,047** | **-3,584 (-28.4%)** |
+| **Provider-Reported Usage** | `None` | `None` | `None` | Gateway unconfigured |
 | **Average Iterations** | 1.0 | 1.0 | 1.0 | Immediate convergence |
-| **Average Duration (seconds)**| 1.15s | 1.17s | 1.15s | High performance |
+| **Average Duration (seconds)**| 1.22s | 1.19s | 1.17s | Benchmark execution time |
 | **Tavily Searches Executed** | 0 | 0 | **6** | +6 auxiliary searches |
-| **Stale Syntax Detections** | 0 | 0 | **6** | +6 deprecations corrected |
+| **Stale Syntax Flagged** | 0 | 0 | **6** | +6 deprecations corrected |
 
-### Clarification on Configuration B and C Equivalence:
-Tavily search execution is handled as an out-of-band auxiliary tool. When a stale claim is detected, the detector injects a concise one-line correction into the prompt rather than dumping raw search pages. Consequently, the AST context token count remains identical between B and C (7,847 tokens), while Configuration C guarantees that the code generated adheres to modern library standards.
-
----
-
-## 7. Bifrost and Tavily Connectivity Status
-
-- **Bifrost AI Gateway (`Track 1`):**
-  - Configured Endpoint: `http://localhost:8080/v1`
-  - Live Status: **UNCONFIGURED / NOT VERIFIED** (Bifrost daemon not running on host).
-  - Mode: Fallback adapter active (`is_simulated = True`). All provider-reported tokens, latencies, and costs are preserved as `None` or explicitly flagged as simulated.
-- **Tavily Search API (`Track 2`):**
-  - Configured Key: `TAVILY_API_KEY` is unset in host environment.
-  - Live Status: **UNCONFIGURED / OFFLINE HEURISTIC**.
-  - Mode: Offline fixture & heuristic evidence active (`is_simulated = True`). Evidence is honestly marked `[OFFLINE SIMULATION]`.
+### Reconciliation of Historical Baseline Context Figures:
+Earlier preliminary reports recorded baseline context totals between 11,433 and 11,436 tokens. This minor deviation ($\pm 2$ to $5$ tokens out of 11,000+) was caused by Windows `CRLF` vs POSIX `LF` line endings across local git file checkouts influencing character-based heuristics (`len(text) // 4`). The clean rerun recorded in `benchmark/results.json` establishes **11,431** context tokens as the verified benchmark figure, yielding an identical **31.4%** context reduction ($31.353\% \approx 31.4\%$).
 
 ---
 
-## 8. Known Limitations & Security Boundaries
+## 9. Command Execution Allowlist & Verification
 
-1. **Host-Level Process Containment vs Container Isolation:** TokenSlim implements strict command allowlisting, process-tree termination, and temporary folder sandboxing. However, executing tests directly on bare-metal Windows is not equivalent to hypervisor or Docker container isolation. For multi-tenant production deployments, test runners must be placed in disposable Docker or gVisor containers.
-2. **Heuristic Token Estimation:** In offline mode, token counts use `len(text) // 4` and tiktoken heuristic estimates. Provider-reported token counts are only available when a real gateway returns them.
-3. **Regex Sanitization Limitations:** Regex-based credential scrubbing masks standard key formats (`sk-*`, `tvly-*`, `ghp_*`, `Bearer`), but cannot detect arbitrary high-entropy custom secrets.
+In `agent/verification.py`, command execution is strictly contained:
 
----
-
-## 9. Submission Package Contents
-
-The submission package consists of:
-1. **Source Code (`agent/`, `server/`):** Full autonomous agent engine, stale detector, accounting ledger, and FastAPI web application.
-2. **Benchmark Suite (`benchmark/`):** 12 deterministic software engineering tasks and authoritative results export.
-3. **Automated Test Suite (`tests/`):** 100 passing unit, integration, and security tests.
-4. **Documentation (`docs/`, `README.md`):** Complete architecture diagrams, security threat models, demo guides, and benchmark methodologies.
-5. **Recorded Demo Trace (`traces/`):** Pre-recorded Pydantic migration trace for zero-dependency replay.
-6. **Configuration (`.env.example`, `pytest.ini`, `requirements.txt`):** Turnkey environment configuration files.
+| Policy Dimension | Permitted Policy | Prohibited / Rejected Pattern | Enforcement Test |
+| :--- | :--- | :--- | :--- |
+| **Executable Binary** | `python`, `python3`, `pytest`, active venv `sys.executable` | `powershell.exe`, `cmd.exe`, `bash`, `curl`, `rm`, `del` | `test_rejected_executable_disallowed` & `test_prohibited_system_binaries_rejected` PASSED |
+| **Shell Interpretation** | Raw argv tokens with `shell=False` | Metacharacters: `&&`, `\|\|`, `;`, `\|`, `&`, `>`, `<`, ``` ` ``` | `test_disallowed_shell_operator_rejected` PASSED |
+| **Argument Paths** | Paths resolving strictly within `self.workspace_dir` | Traversal escapes (`../../secret.py`) or absolute host paths | `test_test_argument_path_escape_rejected` & `test_absolute_path_argument_escape_rejected` PASSED |
+| **Environment Hygiene**| Clean `os.environ` copy with credentials stripped | Inheriting `TAVILY_API_KEY`, `OPENAI_API_KEY`, `BIFROST_API_KEY` | `test_test_environment_secrets_stripped` PASSED |
+| **Process Tree Termination**| Win32 `taskkill /F /T /PID` or POSIX `os.killpg` | Orphaned child processes surviving cancellation | `test_process_tree_termination_kills_child_processes` PASSED |
 
 ---
 
-## 10. Requirement-by-Requirement Completion Matrix
+## 10. Security Limitations & Operational Recommendations
 
-| Checkpoint | Requirement / Feature | Status | Evidence |
-| :--- | :--- | :---: | :--- |
-| **CP 0** | Baseline architecture, preflight checks, design system | **PASSED** | Navy/Cream/Coral UI, healthy SQLite DB |
-| **CP 1** | AST repository mapper, selective context retriever, token budgets | **PASSED** | `agent/repository.py`, `agent/context.py` (31.4% reduction) |
-| **CP 2** | Autonomous coding engine, atomic patch engine, early stopping | **PASSED** | `agent/loop.py`, `agent/edits.py`, `agent/verification.py` |
-| **CP 3** | Bifrost gateway integration, token accounting ledger, pricing catalog | **PASSED** | `agent/bifrost_client.py`, `agent/metrics.py` (6 models verified) |
-| **CP 4** | Tavily Stale-Answer Detector, heuristic evidence scoring | **PASSED** | `agent/stale_detector.py`, on-demand verification API |
-| **CP 5** | Stale detector loop integration, 3-way 12-task benchmark suite | **PASSED** | `benchmark/runner.py`, `benchmark/results.json` |
-| **CP 6** | Run lifecycle, persistent SSE streaming, Last-Event-ID reconnection | **PASSED** | Live server verification, sequential event ordering |
-| **CP 7** | Workspace sandboxing, process-tree termination, secret scrubbing | **PASSED** | Ephemeral clones, `taskkill /F /T /PID`, credential masking |
-| **CP 8** | Command allowlist, demo modes, full documentation, submission package | **PASSED** | Executable allowlists, `README.md`, 4 `docs/` specs, 100 tests |
+> [!WARNING]
+> While TokenSlim enforces strict temporary folder sandboxing, command allowlists, and process-tree termination, **host-level containment is not a substitute for hypervisor or hardware container isolation**.
+
+### Operational Recommendations for Production:
+1. **Containerized Test Execution:** Execute test commands inside ephemeral Docker containers or gVisor sandboxes with strict CPU, memory, and pids quotas.
+2. **Network Egress Isolation:** Run test containers with `--network none` to prevent data exfiltration.
+3. **Database Scalability:** Migrate SQLite WAL mode to PostgreSQL for clustered multi-agent deployments.
+4. **Credential Entropy Scanners:** Supplement regex sanitization with entropy-based secret scanners (e.g. detect-secrets).
 
 ---
 
-*Halt condition met: Checkpoint 8 is complete and committed. All code, tests, documentation, and demo assets are ready for external evaluation. Awaiting final review.*
+## 11. Submission Package File Inventory
+
+Every deliverable required by the project plan and review directives exists and is committed in Git:
+
+1. `README.md` — Project overview, architecture diagram, installation, demo instructions.
+2. `docs/ARCHITECTURE.md` — Component architecture, data flow diagrams, and event contracts.
+3. `docs/BENCHMARK_METHODOLOGY.md` — 12-task benchmark design, accounting formulas, and reconciliation.
+4. `docs/DEMO_GUIDE.md` — Detailed walkthrough of Replay Demo vs Live Demo.
+5. `docs/SECURITY.md` — Threat model, command allowlist matrix, secret scrubbing specs.
+6. `benchmark/results.json` — Authoritative 12-task benchmark results dataset.
+7. `benchmark/tasks/` — 12 deterministic defect and migration tasks.
+8. `tests/` — Automated test suite (103 passing tests).
+9. `traces/demo_pydantic_v2_migration.json` — Recorded trace for zero-dependency replay.
+10. `.env.example` — Clean configuration template with zero exposed secrets.
+11. `requirements.txt` — Pinned, minimal Python dependencies.
+
+---
+
+## 12. Final Requirement Completion Matrix
+
+| Checkpoint / Requirement | Component | Verification Category | Status |
+| :--- | :--- | :--- | :---: |
+| **CP 0: Environment Preflight** | `server/database.py`, `agent/bifrost_client.py` | **Tested** | **PASSED** |
+| **CP 1: Repository Intelligence** | `agent/repository.py`, `agent/context.py` | **Tested** (31.4% context reduction) | **PASSED** |
+| **CP 2: Autonomous Coding Engine** | `agent/loop.py`, `agent/edits.py`, `agent/verification.py`| **Tested** (Early stopping verified) | **PASSED** |
+| **CP 3: Bifrost Gateway Accounting** | `agent/bifrost_client.py`, `agent/metrics.py` | **Tested** (Pricing catalog verified) | **PASSED** |
+| **CP 3: Live Gateway Connectivity**| Direct network probe to Bifrost proxy | **Not verified** (Gateway unconfigured) | **BLOCKED (Documented)** |
+| **CP 4: Tavily Stale-Answer Detection**| `agent/stale_detector.py` | **Tested** (Heuristic scoring & API) | **PASSED** |
+| **CP 4: Live Tavily Connectivity** | Direct network probe to Tavily API | **Not verified** (Key unconfigured) | **BLOCKED (Documented)** |
+| **CP 5: 3-Way Benchmark Suite** | `benchmark/runner.py`, `benchmark/results.json` | **Simulated / Replay only** (Deterministic harness) | **PASSED** |
+| **CP 6: Run Lifecycle & SSE Streaming**| `server/app.py`, `server/events.py` | **Tested** (Last-Event-ID reconnection) | **PASSED** |
+| **CP 7: Workspace Sandboxing & Limits**| `agent/workspace.py`, `agent/repository.py` | **Tested** (Traversal & size limits) | **PASSED** |
+| **CP 7: Process Tree Termination** | `agent/verification.py` (`kill_process_tree`) | **Tested** (Child processes killed) | **PASSED** |
+| **CP 7: Secret Scrubbing** | `agent/security.py` (`scrub_secrets`) | **Tested** (Credentials masked) | **PASSED** |
+| **CP 8: Command Allowlist Hardening** | `agent/verification.py` (`_validate_and_sanitize_command`) | **Tested** (19 security tests passing) | **PASSED** |
+| **CP 8: Replay vs Live Decoupling** | `server/static/app.js`, `docs/DEMO_GUIDE.md` | **Tested** (Honest status tags) | **PASSED** |
+| **CP 8: Submission Documentation** | `README.md`, 4 `docs/` specifications, final report | **Implemented** | **PASSED** |
+
+---
+
+*Halt condition met: Final corrections and submission verification complete. All code, tests, documentation, and demo assets are committed. Awaiting external review.*

@@ -84,15 +84,25 @@ The terminal trace streams sequential events in real-time:
 ### Step 7: Inspect Benchmark Comparison Dashboard
 - Click **Benchmark Dashboard** in the navigation menu.
 - Review the 3-configuration benchmark table across 12 tasks:
-  - **Naive Baseline (Broad Context):** 12,633 simulated tokens spent (11,433 context tokens).
+  - **Naive Baseline (Broad Context):** 12,631 simulated tokens spent (11,431 context tokens).
   - **LeanCode (Selective AST):** 9,047 simulated tokens spent (7,847 context tokens) $\to$ **31.4% context reduction**.
   - **LeanCode + Tavily (Complete TokenSlim):** 9,047 simulated tokens spent, 6 stale syntax detections flagged, 6 Tavily searches executed.
 
 ---
 
-## 3. Walkthrough: Live Demo Mode (With Credentials)
+## 3. Walkthrough: Live Demo Mode (With Verified Credentials)
 
-When running in an environment with real credentials:
+Live execution requires genuine external connectivity to both the Bifrost Gateway and Tavily APIs. A configured endpoint or key alone is insufficient:
+
+### Three-State Verification Model:
+1. **Configured:** `BIFROST_BASE_URL` or `TAVILY_API_KEY` is present in the environment.
+2. **Reachable:** Live network probe (`PROBE_BIFROST_LIVE=1` / `PROBE_TAVILY_LIVE=1`) establishes successful TCP/HTTP connection.
+3. **Verified:** A test request returns an authentic provider response with usage metadata (`response.usage`).
+
+If either service is unconfigured or unreachable:
+- The sidebar displays explicit status badges: `OFFLINE / UNSET` or `OFFLINE / HEURISTIC`.
+- The system **never silently substitutes simulated results** as live execution.
+- If live execution fails due to network or authentication errors, the run terminates with status `FAILED` and displays the exact provider error.
 
 ### Step 1: Configure `.env`
 Create or update `.env` in the repository root:
@@ -104,15 +114,16 @@ PROBE_BIFROST_LIVE=1
 PROBE_TAVILY_LIVE=1
 ```
 
-### Step 2: Start the Bifrost Daemon
+### Step 2: Start the Bifrost Daemon & Verify Reachability
 Ensure your Bifrost daemon or Docker container is active:
 ```bash
 docker run -p 8080:8080 ...
 ```
+Verify via `http://localhost:8000/api/health` that `bifrost.status` reports `"reachable"`.
 
 ### Step 3: Run the Live Task
 1. Uncheck **"Replay Pre-recorded Trace"** in the UI.
 2. Select target repository and enter task directive.
 3. Click **"Execute Autonomous Agent"**.
 4. The system will make live network calls through the Bifrost proxy and Tavily search API.
-5. Live provider tokens, latency in seconds, and calculated costs will appear in the top metric pills and SQLite trace ledger.
+5. Authentic provider tokens, actual latency in seconds, and calculated costs will appear in the top metric pills and SQLite trace ledger. Provider tokens remain `None` if the provider omits usage.

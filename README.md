@@ -153,7 +153,7 @@ Execute the 12-task benchmark across all three configurations:
 ### Benchmark Summary:
 | Configuration | Context Strategy | Tasks | Pass Rate | Context Tokens | Context Reduction |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Naive Baseline** | Full-file concatenation | 12 | 100.0% | 11,433 | Baseline (0.0%) |
+| **Naive Baseline** | Full-file concatenation | 12 | 100.0% | 11,431 | Baseline (0.0%) |
 | **LeanCode** | Selective AST Context | 12 | 100.0% | 7,847 | **-31.4%** |
 | **LeanCode + Tavily** | Selective AST + Stale Check | 12 | 100.0% | 7,847 | **-31.4% (6 Stale Flagged)** |
 

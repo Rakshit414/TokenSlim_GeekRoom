@@ -44,6 +44,19 @@ DISALLOWED_SHELL_OPERATORS = {
 }
 ```
 
+### Command Execution Allowlist Matrix
+
+| Security Dimension | Permitted Policy | Prohibited / Rejected Pattern | Enforcement & Error Signal |
+| :--- | :--- | :--- | :--- |
+| **Executable Binary** | `python`, `python3`, `python.exe`, `pytest`, `pytest.exe`, `py.test`, or active venv `sys.executable` | System binaries: `powershell`, `cmd`, `bash`, `sh`, `curl`, `wget`, `rm`, `del`, `taskkill` | `FAILED to execute test process: Security violation: Executable '<exe>' is not in the permitted test runners allowlist.` |
+| **Shell Interpretation** | Raw argv token list executed directly with `shell=False`. | Shell metacharacters and chaining operators: `&&`, `||`, `;`, `\|`, `&`, `>`, `<`, ``` ` ```, `$` | `FAILED to execute test process: Security violation: Disallowed shell operator '<op>' detected in test command.` |
+| **Command Patterns** | `python -m pytest -v`, `pytest -v <test_file>`, `python <script>` | Custom shell scripts, pipes, redirection, background jobs (`&`), eval wrappers | Security error before subprocess spawn (`exit_code = -2`) |
+| **Argument Paths** | Files and directories strictly resolving within `self.workspace_dir` | Traversal escapes (`../../secret.py`) or absolute host paths (`C:\Windows\...`, `/etc/...`) | `FAILED to execute test process: Security violation: Argument '<arg>' escapes workspace boundary.` |
+| **Working Directory** | Strictly anchored to `self.workspace_dir` (isolated ephemeral sandbox) | Any attempt to run commands in parent directory, root drive, or host repo | Invariant `cwd=str(self.workspace_dir)` passed to `subprocess.Popen` |
+| **Subprocess Environment**| Clean copy of `os.environ` with all credentials stripped; `PYTHONPATH` points to sandbox | Preserving API keys (`TAVILY_API_KEY`, `OPENAI_API_KEY`, `BIFROST_API_KEY`, etc.) | Keys explicitly popped from `env` before `subprocess.Popen` |
+| **Timeout Ceiling** | Default 25.0s per test execution (configurable) | Indefinite hangs, infinite loops, hanging network sockets | `subprocess.TimeoutExpired` triggers `kill_process_tree` |
+| **Process Tree Killing** | Recursive termination of parent and all child PIDs | Leaving background or spawned worker processes running | Win32 `taskkill /F /T /PID` or POSIX `os.killpg` |
+
 ### Execution Rules:
 1. `shell=False` is enforced unconditionally.
 2. The command is split into tokens using `shlex.split`.

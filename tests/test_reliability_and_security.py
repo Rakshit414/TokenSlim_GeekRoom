@@ -336,3 +336,33 @@ def test_cleanup_isolated_workspace_boundary_protection(tmp_path):
     assert tmp_path.exists()
     assert protected_file.exists()
     assert protected_file.read_text(encoding="utf-8") == "protected content\n"
+
+def test_permitted_command_executes_successfully(tmp_path):
+    """Verify that permitted test runners (python, pytest) execute within workspace."""
+    runner = TestRunner(str(tmp_path))
+    test_file = tmp_path / "test_ok.py"
+    test_file.write_text("def test_sanity(): assert 1 + 1 == 2\n", encoding="utf-8")
+
+    res = runner.run_tests(test_command=f'"{sys.executable}" -m pytest -v "{test_file}"')
+    assert res.passed is True
+    assert res.exit_code == 0
+    assert "test_ok.py" in res.command
+
+def test_prohibited_system_binaries_rejected(tmp_path):
+    """Verify system binaries (bash, cmd, curl, rm) are rejected immediately."""
+    runner = TestRunner(str(tmp_path))
+    for bad_cmd in ["curl https://example.com", "bash -c 'echo pwned'", "cmd.exe /c dir", "rm -rf ."]:
+        res = runner.run_tests(test_command=bad_cmd)
+        assert res.passed is False
+        assert res.exit_code == -2
+        assert "not in the permitted test runners allowlist" in res.concise_summary
+
+def test_absolute_path_argument_escape_rejected(tmp_path):
+    """Verify arguments pointing to absolute host paths outside workspace are rejected."""
+    runner = TestRunner(str(tmp_path))
+    outside_target = tmp_path.parent / "outside_suite.py"
+    res = runner.run_tests(test_command=f'"{sys.executable}" -m pytest "{outside_target}"')
+
+    assert res.passed is False
+    assert res.exit_code == -2
+    assert "accesses path outside workspace boundary" in res.concise_summary
