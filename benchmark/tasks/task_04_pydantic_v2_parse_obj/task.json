@@ -1,0 +1,8 @@
+{
+  "task_id": "task_04_pydantic_v2_parse_obj",
+  "title": "Pydantic v2 parse_obj Deprecation Migration",
+  "category": "deprecated_api",
+  "description": "Migrate config loader in loader.py from deprecated .parse_obj() to Pydantic v2 .model_validate().",
+  "expected_stale_outcome": "STALE",
+  "test_command": "pytest test_loader.py"
+}

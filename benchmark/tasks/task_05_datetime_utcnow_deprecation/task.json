@@ -1,0 +1,8 @@
+{
+  "task_id": "task_05_datetime_utcnow_deprecation",
+  "title": "Python 3.12 datetime.utcnow Deprecation",
+  "category": "deprecated_api",
+  "description": "Replace deprecated datetime.utcnow() in session.py with timezone-aware datetime.now(timezone.utc).",
+  "expected_stale_outcome": "STALE",
+  "test_command": "pytest test_session.py"
+}

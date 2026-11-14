@@ -1,0 +1,8 @@
+{
+  "task_id": "task_11_string_reversal_edge_cases",
+  "title": "Whitespace Edge-Case in Word Reversal",
+  "category": "ordinary_defect",
+  "description": "Fix reverse_words in text_cleaner.py to correctly normalize multiple consecutive whitespace and handle empty strings.",
+  "expected_stale_outcome": "CURRENT",
+  "test_command": "pytest test_text_cleaner.py"
+}

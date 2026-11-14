@@ -1,0 +1,8 @@
+{
+  "task_id": "task_12_pkg_resources_migration",
+  "title": "pkg_resources Deprecation Migration",
+  "category": "deprecated_api",
+  "description": "Migrate asset_reader.py away from deprecated pkg_resources to standard library importlib.resources.",
+  "expected_stale_outcome": "STALE",
+  "test_command": "pytest test_asset_reader.py"
+}

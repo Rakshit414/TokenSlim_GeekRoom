@@ -1,0 +1,8 @@
+{
+  "task_id": "task_07_collections_abc_mapping",
+  "title": "Python 3.10 collections.Mapping Removal Migration",
+  "category": "deprecated_api",
+  "description": "Migrate mapping_utils.py from removed collections.Mapping to standard collections.abc.Mapping.",
+  "expected_stale_outcome": "STALE",
+  "test_command": "pytest test_mapping_utils.py"
+}

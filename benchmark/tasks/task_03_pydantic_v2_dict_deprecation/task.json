@@ -1,0 +1,8 @@
+{
+  "task_id": "task_03_pydantic_v2_dict_deprecation",
+  "title": "Pydantic v2 .dict() Deprecation Migration",
+  "category": "deprecated_api",
+  "description": "Migrate user profile serializer in models.py from deprecated .dict() to Pydantic v2 .model_dump().",
+  "expected_stale_outcome": "STALE",
+  "test_command": "pytest test_models.py"
+}

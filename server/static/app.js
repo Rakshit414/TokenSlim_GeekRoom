@@ -218,6 +218,61 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Fetch and render benchmark results
+  async function loadBenchmarkData() {
+    try {
+      const resp = await fetch('/api/benchmarks');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (!data.configurations) return;
+
+      const cfgs = data.configurations;
+      if (cfgs.naive_baseline) {
+        document.getElementById('kpi-a-tokens').textContent = cfgs.naive_baseline.total_tokens_spent.toLocaleString();
+        document.getElementById('kpi-a-context').textContent = cfgs.naive_baseline.total_context_tokens.toLocaleString();
+        document.getElementById('kpi-a-pass').textContent = `${cfgs.naive_baseline.pass_rate_pct}%`;
+      }
+      if (cfgs.leancode) {
+        document.getElementById('kpi-b-tokens').textContent = cfgs.leancode.total_tokens_spent.toLocaleString();
+        document.getElementById('kpi-b-context').textContent = cfgs.leancode.total_context_tokens.toLocaleString();
+        document.getElementById('kpi-b-pass').textContent = `${cfgs.leancode.pass_rate_pct}%`;
+        document.getElementById('kpi-b-reduction').textContent = `-${cfgs.leancode.context_reduction_pct}% Context`;
+      }
+      if (cfgs.leancode_tavily) {
+        document.getElementById('kpi-c-tokens').textContent = cfgs.leancode_tavily.total_tokens_spent.toLocaleString();
+        document.getElementById('kpi-c-pass').textContent = `${cfgs.leancode_tavily.pass_rate_pct}%`;
+        document.getElementById('kpi-c-reduction').textContent = `-${cfgs.leancode_tavily.context_reduction_pct}% Context`;
+        document.getElementById('kpi-c-stale').textContent = cfgs.leancode_tavily.stale_detections;
+        document.getElementById('kpi-c-tavily').textContent = cfgs.leancode_tavily.tavily_searches;
+      }
+
+      const tbody = document.getElementById('benchmark-table-body');
+      if (tbody && data.task_results) {
+        tbody.innerHTML = '';
+        data.task_results.forEach(tr => {
+          const row = document.createElement('tr');
+          row.style.borderBottom = '1px solid var(--cream-border)';
+          const configBadge = tr.configuration === 'leancode_tavily' ? 'badge-current' :
+                              tr.configuration === 'leancode' ? 'badge-current' : 'badge-uncertain';
+          row.innerHTML = `
+            <td style="padding: 6px 10px; font-family: var(--font-mono); font-size: 11px;">${escapeHtml(tr.task_id)}</td>
+            <td style="padding: 6px 10px;"><span class="badge-status ${configBadge}">${escapeHtml(tr.configuration)}</span></td>
+            <td style="padding: 6px 10px; color: ${tr.passed ? 'green' : 'var(--coral)'}; font-weight: 600;">${tr.passed ? 'PASSED' : 'FAILED'}</td>
+            <td style="padding: 6px 10px; font-family: var(--font-mono);">${tr.estimated_context_tokens.toLocaleString()}</td>
+            <td style="padding: 6px 10px; font-family: var(--font-mono); font-weight: 600;">${tr.total_tokens_spent.toLocaleString()}</td>
+            <td style="padding: 6px 10px;">${tr.stale_detections_count} / ${tr.tavily_searches_count}</td>
+          `;
+          tbody.appendChild(row);
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to load benchmark data:', e);
+    }
+  }
+
+  document.getElementById('btn-refresh-benchmarks')?.addEventListener('click', loadBenchmarkData);
+  loadBenchmarkData();
+
   // Navigation tab interaction
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', (e) => {

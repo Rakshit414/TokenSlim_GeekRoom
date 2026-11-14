@@ -1,0 +1,8 @@
+{
+  "task_id": "task_06_openai_sdk_v1_chat_completion",
+  "title": "OpenAI Python SDK v1.0 Client Migration",
+  "category": "changed_sdk",
+  "description": "Migrate llm_gateway.py from removed openai.ChatCompletion.create() to modern client.chat.completions.create().",
+  "expected_stale_outcome": "STALE",
+  "test_command": "pytest test_llm_gateway.py"
+}

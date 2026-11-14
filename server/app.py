@@ -173,6 +173,7 @@ async def create_run(request: RunCreateRequest):
         workspace_dir=target_repo,
         task_directive=request.prompt or "Analyze repository and repair defects",
         token_budget=request.token_budget or 15000,
+        configuration=request.configuration,
         run_id=run_id
     )
     active_loops[run_id] = loop_instance
@@ -289,6 +290,26 @@ async def get_benchmarks():
         with open(results_path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"benchmarks": [], "status": "no_results_yet"}
+
+class BenchmarkRunRequest(BaseModel):
+    task_ids: Optional[List[str]] = None
+    configurations: Optional[List[str]] = None
+    use_deterministic_mocks: Optional[bool] = True
+
+@app.post("/api/benchmarks/run")
+async def trigger_benchmark_api(request: BenchmarkRunRequest = BenchmarkRunRequest()):
+    from benchmark.runner import BenchmarkRunner, TASKS_DIR
+    runner = BenchmarkRunner(
+        tasks_dir=TASKS_DIR,
+        use_deterministic_mocks=request.use_deterministic_mocks if request.use_deterministic_mocks is not None else True
+    )
+    summary = await asyncio.to_thread(
+        runner.run_suite,
+        task_ids=request.task_ids,
+        configurations=request.configurations,
+        save_results=True
+    )
+    return summary.model_dump()
 
 @app.get("/api/traces")
 async def get_traces():

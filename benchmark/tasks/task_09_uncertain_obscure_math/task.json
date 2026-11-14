@@ -1,0 +1,8 @@
+{
+  "task_id": "task_09_uncertain_obscure_math",
+  "title": "Proprietary Algorithm Base-Case Repair (Uncertain Documentation)",
+  "category": "uncertain_evidence",
+  "description": "Fix base-case bug in internal proprietary function _custom_fast_exp without replacing the custom algorithm.",
+  "expected_stale_outcome": "UNCERTAIN",
+  "test_command": "pytest test_math_internal.py"
+}

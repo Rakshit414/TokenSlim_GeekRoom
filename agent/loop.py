@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from pydantic import BaseModel, Field
 
 from agent.repository import RepositoryScanner, RepositoryMap
-from agent.context import ContextRetriever, ContextPackage
+from agent.context import ContextRetriever, ContextPackage, estimate_tokens
 from agent.edits import PatchEngine, PatchResult
 from agent.verification import TestRunner, TestExecutionResult
 from agent.bifrost_client import BifrostClient, BifrostUsage
@@ -23,6 +23,7 @@ from server.events import event_bus
 class ExecutionSummary(BaseModel):
     run_id: str
     status: str
+    configuration: str = "leancode_tavily"
     iterations_count: int = 0
     tests_passed: bool = False
     baseline_test_passed: bool = False
@@ -30,11 +31,14 @@ class ExecutionSummary(BaseModel):
     diffs: List[str] = Field(default_factory=list)
     total_tokens_spent: int = 0
     provider_reported_tokens: Optional[int] = None
+    estimated_context_tokens: int = 0
     is_simulated: bool = False
     wall_clock_seconds: float = 0.0
     events_log: List[Dict[str, Any]] = Field(default_factory=list)
     final_message: str = ""
     ledger_summary: Dict[str, Any] = Field(default_factory=dict)
+    stale_detections: List[Dict[str, Any]] = Field(default_factory=list)
+    tavily_searches: int = 0
 
 class AutonomousCodingLoop:
     def __init__(
@@ -43,23 +47,29 @@ class AutonomousCodingLoop:
         task_directive: str,
         bifrost_client: Optional[BifrostClient] = None,
         test_command: Optional[str] = None,
+        configuration: str = "leancode_tavily",
         token_budget: int = 15000,
         max_repair_iterations: int = 4,
         time_limit_seconds: float = 120.0,
         run_id: Optional[str] = None,
-        mock_patch_generator: Optional[Any] = None
+        mock_patch_generator: Optional[Any] = None,
+        stale_detector: Optional[Any] = None
     ):
         self.workspace_dir = Path(workspace_dir).resolve()
         self.task_directive = task_directive
         self.bifrost_client = bifrost_client or BifrostClient()
         self.test_command = test_command
+        self.configuration = configuration
         self.token_budget = token_budget
         self.max_repair_iterations = max_repair_iterations
         self.time_limit_seconds = time_limit_seconds
         self.run_id = run_id or f"run_{int(time.time())}"
         self.mock_patch_generator = mock_patch_generator
+        self.stale_detector = stale_detector
         self.ledger = RunMetricsLedger(run_id=self.run_id)
 
+        self.stale_detections: List[Dict[str, Any]] = []
+        self.tavily_searches: int = 0
         self._cancelled = False
         self._test_runner: Optional[TestRunner] = None
         self.events: List[Dict[str, Any]] = []
@@ -195,6 +205,7 @@ class AutonomousCodingLoop:
             return ExecutionSummary(
                 run_id=self.run_id,
                 status="COMPLETED_VERIFIED",
+                configuration=self.configuration,
                 iterations_count=0,
                 tests_passed=True,
                 baseline_test_passed=True,
@@ -207,17 +218,100 @@ class AutonomousCodingLoop:
         elif baseline_passed:
             self._record_event("task_unfulfilled", f"{satisfaction_reason}")
 
-        # 3. Context Selection
-        retriever = ContextRetriever(repo_map, max_tokens=min(4000, self.token_budget // 2))
-        query_terms = self.task_directive
-        if baseline_res.failing_tests:
-            query_terms += " " + " ".join(baseline_res.failing_tests)
+        # 3. Context Selection & Stale-Answer Detection
+        stale_guidance = None
+        if self.configuration == "leancode_tavily":
+            self._record_event("stale_detection_start", "Extracting technical assumptions and verifying with Tavily...")
+            if not self.stale_detector:
+                from agent.stale_detector import StaleAnswerDetector
+                self.stale_detector = StaleAnswerDetector()
 
-        context_pkg = retriever.retrieve(query_terms)
-        self._record_event("context_selected", f"Retrieved {len(context_pkg.slices)} minimal slices from {context_pkg.metrics.retrieved_files_count} file(s). Estimated tokens: {context_pkg.metrics.estimated_tokens}", {
-            "estimated_tokens": context_pkg.metrics.estimated_tokens,
-            "slices_count": len(context_pkg.slices)
-        })
+            code_snippets = {}
+            for fpath in repo_map.files.keys():
+                full_p = self.workspace_dir / fpath
+                if full_p.exists() and full_p.is_file() and full_p.suffix in (".py", ".json", ".yaml", ".yml", ".toml"):
+                    try:
+                        code_snippets[fpath] = full_p.read_text(encoding="utf-8")
+                    except Exception:
+                        pass
+
+            detection_run = self.stale_detector.run_detection(
+                task=self.task_directive,
+                code_snippets=code_snippets,
+                max_searches=5,
+                persist=True
+            )
+            self.tavily_searches = detection_run.searches_executed
+            self.stale_detections = [c.model_dump() for c in detection_run.claims]
+            if detection_run.is_simulated:
+                is_simulated = True
+
+            guidance_lines = []
+            stale_claims = detection_run.stale_claims
+            current_claims = detection_run.current_claims
+            uncertain_claims = detection_run.uncertain_claims
+
+            if stale_claims:
+                guidance_lines.append("The following technical assumptions were confirmed STALE/DEPRECATED by official documentation:")
+                for sc in stale_claims:
+                    guidance_lines.append(f"- Outdated: {sc.claim_text}")
+                    if sc.recommended_correction:
+                        guidance_lines.append(f"  Correction: {sc.recommended_correction}")
+                    if sc.suggested_patch:
+                        guidance_lines.append(f"  Suggested Patch:\n{sc.suggested_patch}")
+                    guidance_lines.append(f"  Evidence: {sc.reasoning}")
+
+            if current_claims:
+                guidance_lines.append("The following technical items were verified CURRENT; do NOT rewrite them unnecessarily:")
+                for cc in current_claims:
+                    guidance_lines.append(f"- Current: {cc.claim_text}")
+
+            if uncertain_claims:
+                guidance_lines.append("The following items had INSUFFICIENT documentation evidence (UNCERTAIN); preserve existing code unless failing tests directly prove an error:")
+                for uc in uncertain_claims:
+                    guidance_lines.append(f"- Uncertain: {uc.claim_text}")
+
+            if guidance_lines:
+                stale_guidance = "\n".join(guidance_lines)
+
+            self._record_event("stale_detection_complete", f"Stale detector checked {len(detection_run.claims)} claim(s): {len(stale_claims)} STALE, {len(current_claims)} CURRENT, {len(uncertain_claims)} UNCERTAIN.", {
+                "stale_count": len(stale_claims),
+                "current_count": len(current_claims),
+                "uncertain_count": len(uncertain_claims),
+                "searches_executed": detection_run.searches_executed
+            })
+
+        # Context Selection: Broad for naive baseline vs AST Selective for LeanCode
+        if self.configuration == "naive_baseline":
+            broad_parts = []
+            for p in sorted(self.workspace_dir.rglob("*")):
+                if p.is_file() and not p.name.startswith(".") and "__pycache__" not in p.parts:
+                    try:
+                        content = p.read_text(encoding="utf-8", errors="replace")
+                        rel_path = str(p.relative_to(self.workspace_dir)).replace("\\", "/")
+                        broad_parts.append(f"### File: {rel_path} (Full File Content)\n```\n{content}\n```")
+                    except Exception:
+                        pass
+            if baseline_res.raw_output_truncated:
+                broad_parts.append(f"### Unfiltered Raw Test Logs\n```\n{baseline_res.raw_output_truncated}\n```")
+            formatted_context = "\n\n".join(broad_parts)
+            self.ledger.locally_estimated_context_tokens = estimate_tokens(formatted_context)[0]
+            self._record_event("context_selected", f"Naive baseline: Broad full-file context retrieved ({len(broad_parts)} sections). Estimated tokens: {self.ledger.locally_estimated_context_tokens}", {
+                "estimated_tokens": self.ledger.locally_estimated_context_tokens,
+                "mode": "naive_baseline"
+            })
+        else:
+            retriever = ContextRetriever(repo_map, max_tokens=min(4000, self.token_budget // 2))
+            query_terms = self.task_directive
+            if baseline_res.failing_tests:
+                query_terms += " " + " ".join(baseline_res.failing_tests)
+            context_pkg = retriever.retrieve(query_terms)
+            formatted_context = context_pkg.formatted_prompt_context
+            self.ledger.locally_estimated_context_tokens = estimate_tokens(formatted_context)[0]
+            self._record_event("context_selected", f"Retrieved {len(context_pkg.slices)} minimal slices from {context_pkg.metrics.retrieved_files_count} file(s). Estimated tokens: {self.ledger.locally_estimated_context_tokens}", {
+                "estimated_tokens": self.ledger.locally_estimated_context_tokens,
+                "slices_count": len(context_pkg.slices)
+            })
 
         # 4. Iterative Repair Loop
         iteration = 0
@@ -249,10 +343,11 @@ class AutonomousCodingLoop:
             patch_text = ""
             if self.mock_patch_generator:
                 patch_text = self.mock_patch_generator(iteration, last_failure_summary, last_patch_error)
+                ctx_toks = self.ledger.locally_estimated_context_tokens or 200
                 usage = BifrostUsage(
-                    input_tokens=150,
+                    input_tokens=ctx_toks + 50,
                     output_tokens=50,
-                    total_tokens=200,
+                    total_tokens=ctx_toks + 100,
                     request_id=f"mock_req_{iteration}",
                     model="mock-agent-adapter",
                     is_simulated=True,
@@ -282,11 +377,12 @@ class AutonomousCodingLoop:
             else:
                 prompt = build_repair_prompt(
                     task_directive=self.task_directive,
-                    context_code=context_pkg.formatted_prompt_context,
+                    context_code=formatted_context,
                     failing_test_summary=last_failure_summary,
                     traceback_excerpt=last_traceback,
                     iteration=iteration,
-                    patch_error=last_patch_error
+                    patch_error=last_patch_error,
+                    stale_guidance=stale_guidance
                 )
 
                 messages = [
@@ -401,6 +497,7 @@ class AutonomousCodingLoop:
         summary = ExecutionSummary(
             run_id=self.run_id,
             status=status,
+            configuration=self.configuration,
             iterations_count=iterations,
             tests_passed=passed,
             baseline_test_passed=baseline_passed,
@@ -408,25 +505,30 @@ class AutonomousCodingLoop:
             diffs=diffs,
             total_tokens_spent=tokens,
             provider_reported_tokens=provider_tokens,
+            estimated_context_tokens=self.ledger.locally_estimated_context_tokens,
             is_simulated=is_simulated,
             wall_clock_seconds=elapsed,
             events_log=self.events,
             final_message=message,
-            ledger_summary=self.ledger.to_summary_dict()
+            ledger_summary=self.ledger.to_summary_dict(),
+            stale_detections=self.stale_detections,
+            tavily_searches=self.tavily_searches
         )
 
         try:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO runs (run_id, status, configuration, repo_path, prompt, metrics_json, diff_text, created_at, completed_at)
-                VALUES (?, ?, 'autonomous_loop', ?, ?, ?, ?, datetime('now'), datetime('now'))
+                INSERT INTO runs (run_id, status, configuration, repo_path, prompt, metrics_json, stale_detections_json, diff_text, created_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                 ON CONFLICT(run_id) DO UPDATE SET
                     status = excluded.status,
+                    configuration = excluded.configuration,
                     metrics_json = excluded.metrics_json,
+                    stale_detections_json = excluded.stale_detections_json,
                     diff_text = excluded.diff_text,
                     completed_at = datetime('now')
-            """, (self.run_id, status, str(self.workspace_dir), self.task_directive, json.dumps(self.ledger.to_summary_dict()), "\n".join(diffs)))
+            """, (self.run_id, status, self.configuration, str(self.workspace_dir), self.task_directive, json.dumps(self.ledger.to_summary_dict()), json.dumps(self.stale_detections), "\n".join(diffs)))
             conn.commit()
             conn.close()
         except Exception:

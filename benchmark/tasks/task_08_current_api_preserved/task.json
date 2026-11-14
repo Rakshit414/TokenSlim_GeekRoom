@@ -1,0 +1,8 @@
+{
+  "task_id": "task_08_current_api_preserved",
+  "title": "HTTP Status Code Fix While Preserving Current Pydantic Field APIs",
+  "category": "preserve_current",
+  "description": "Fix status code in create_item from 200 to 201 without altering valid Pydantic Field annotations.",
+  "expected_stale_outcome": "CURRENT",
+  "test_command": "pytest test_api_handler.py"
+}

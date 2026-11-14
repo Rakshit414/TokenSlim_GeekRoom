@@ -1,0 +1,8 @@
+{
+  "task_id": "task_10_deprecated_model_param",
+  "title": "Shutdown Model Name Configuration Update",
+  "category": "deprecated_param",
+  "description": "Update deprecated and decommissioned model name 'text-davinci-003' to 'gpt-4o-mini' in settings.py.",
+  "expected_stale_outcome": "STALE",
+  "test_command": "pytest test_settings.py"
+}

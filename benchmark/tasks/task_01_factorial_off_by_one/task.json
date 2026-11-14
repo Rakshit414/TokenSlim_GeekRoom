@@ -1,0 +1,8 @@
+{
+  "task_id": "task_01_factorial_off_by_one",
+  "title": "Factorial Off-by-One Calculation Defect",
+  "category": "ordinary_defect",
+  "description": "Fix off-by-one bug in compute_factorial in calculator.py so that factorial(5) returns 120 instead of 24.",
+  "expected_stale_outcome": "CURRENT",
+  "test_command": "pytest test_calculator.py"
+}

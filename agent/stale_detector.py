@@ -73,6 +73,13 @@ KNOWN_OBSOLESCENCE_PATTERNS = [
         "hint": "pkg_resources is deprecated and slated for removal; use importlib"
     },
     {
+        "pattern": r"from\s+collections\s+import\s+Mapping",
+        "tech": "python",
+        "description": "collections.Mapping import",
+        "expected_modern": "from collections.abc import Mapping",
+        "hint": "collections.Mapping was removed in Python 3.10+; use collections.abc.Mapping"
+    },
+    {
         "pattern": r"\.append\(.*ignore_index\s*=\s*True\)",
         "tech": "pandas",
         "description": "pandas.DataFrame.append() usage",
@@ -458,6 +465,11 @@ class StaleAnswerDetector:
         if "pkg_resources" in claim_lower:
             rec = "Migrate from deprecated `pkg_resources` to `importlib.metadata` or `importlib.resources`."
             patch = "- import pkg_resources\n+ import importlib.metadata"
+            return rec, patch
+
+        if "mapping" in claim_lower and "collections" in claim_lower:
+            rec = "Import `Mapping` from `collections.abc` instead of deprecated `collections`."
+            patch = "- from collections import Mapping\n+ from collections.abc import Mapping"
             return rec, patch
 
         # General recommendation

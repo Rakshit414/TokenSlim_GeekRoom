@@ -1,0 +1,8 @@
+{
+  "task_id": "task_02_invoice_selective_context",
+  "title": "Invoice ID Formatting in Large Service",
+  "category": "selective_context",
+  "description": "Fix format_invoice_id in invoice_service.py so invoice numbers are formatted with 'INV-' prefix and 5-digit zero padding.",
+  "expected_stale_outcome": "CURRENT",
+  "test_command": "pytest test_invoice.py"
+}
