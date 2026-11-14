@@ -17,7 +17,7 @@ from agent.verification import TestRunner, TestExecutionResult
 from agent.bifrost_client import BifrostClient, BifrostUsage
 from agent.prompts import SYSTEM_CODING_PROMPT, build_repair_prompt
 from agent.metrics import RunMetricsLedger, ModelCallRecord
-from server.database import get_connection
+from server.database import get_connection, save_run_event, save_execution_trace
 from server.events import event_bus
 
 class ExecutionSummary(BaseModel):
@@ -137,7 +137,7 @@ class AutonomousCodingLoop:
         return True, "All requested symbols exist and existing tests pass."
 
     def _record_event(self, event_type: str, message: str, payload: Optional[Dict[str, Any]] = None):
-        """Record and broadcast an execution telemetry event."""
+        """Record and broadcast an execution telemetry event with persistent sequential ID."""
         event = {
             "run_id": self.run_id,
             "type": event_type,
@@ -145,6 +145,14 @@ class AutonomousCodingLoop:
             "data": payload or {},
             "timestamp": time.time()
         }
+
+        # Persist to database to obtain deterministic sequential row ID
+        try:
+            event_id = save_run_event(self.run_id, event_type, event)
+            event["id"] = event_id
+        except Exception:
+            event["id"] = len(self.events) + 1
+
         self.events.append(event)
 
         # Broadcast via event bus if an event loop is currently running
@@ -154,19 +162,6 @@ class AutonomousCodingLoop:
                 asyncio.create_task(event_bus.broadcast(self.run_id, event))
         except RuntimeError:
             # No running event loop in current thread
-            pass
-
-        # Persist to database if table exists
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO run_events (run_id, event_type, payload_json, created_at)
-                VALUES (?, ?, ?, datetime('now'))
-            """, (self.run_id, event_type, json.dumps(event)))
-            conn.commit()
-            conn.close()
-        except Exception:
             pass
 
     def run(self) -> ExecutionSummary:
@@ -531,6 +526,11 @@ class AutonomousCodingLoop:
             """, (self.run_id, status, self.configuration, str(self.workspace_dir), self.task_directive, json.dumps(self.ledger.to_summary_dict()), json.dumps(self.stale_detections), "\n".join(diffs)))
             conn.commit()
             conn.close()
+        except Exception:
+            pass
+
+        try:
+            save_execution_trace(self.run_id, summary.model_dump())
         except Exception:
             pass
 

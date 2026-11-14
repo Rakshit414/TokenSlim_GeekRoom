@@ -21,7 +21,9 @@ from server.schemas import RunCreateRequest, RunResponse, HealthResponse, TokenM
 from server.database import (
     get_connection, init_db, save_stale_detection_run,
     get_stale_detection_run, get_claims_for_run,
-    get_evidence_for_claim, get_correction_for_claim
+    get_evidence_for_claim, get_correction_for_claim,
+    save_run_event, get_run_events, save_execution_trace,
+    get_execution_trace, get_all_runs, update_run_status
 )
 from server.events import event_bus
 from agent.loop import AutonomousCodingLoop, ExecutionSummary
@@ -140,10 +142,21 @@ async def health_check():
         environment=os.getenv("ENVIRONMENT", "development")
     )
 
+@app.get("/api/runs")
+async def list_runs(limit: int = 50):
+    """Retrieve recent autonomous agent runs."""
+    return {"runs": get_all_runs(limit=limit)}
+
 @app.post("/api/runs")
 async def create_run(request: RunCreateRequest):
     now_iso = datetime.now(timezone.utc).isoformat()
     run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{os.urandom(3).hex()}"
+
+    # Check if target repository exists
+    target_repo = request.repo_path
+    if not Path(target_repo).is_absolute():
+        target_repo = str((Path(__file__).resolve().parent.parent / target_repo).resolve())
+
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -164,11 +177,52 @@ async def create_run(request: RunCreateRequest):
     conn.commit()
     conn.close()
 
-    # Launch background autonomous execution loop
-    target_repo = request.repo_path
-    if not Path(target_repo).is_absolute():
-        target_repo = str((Path(__file__).resolve().parent.parent / target_repo).resolve())
+    # Record initial run_created event
+    init_evt = {
+        "run_id": run_id,
+        "type": "state_change",
+        "message": f"Run {run_id} initialized in '{request.configuration}' mode.",
+        "data": {
+            "status": "running",
+            "is_replay": bool(request.replay),
+            "configuration": request.configuration
+        },
+        "timestamp": datetime.now(timezone.utc).timestamp()
+    }
+    save_run_event(run_id, "state_change", init_evt)
 
+    # Replay mode handler
+    if request.replay:
+        async def execute_replay():
+            demo_trace_file = Path(__file__).resolve().parent.parent / "traces" / "demo_pydantic_v2_migration.json"
+            trace_events = []
+            if demo_trace_file.exists():
+                try:
+                    with open(demo_trace_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        trace_events = data.get("events", [])
+                except Exception:
+                    pass
+
+            for evt in trace_events:
+                if run_id not in active_loops:
+                    break
+                evt_copy = dict(evt)
+                evt_copy["run_id"] = run_id
+                evt_copy["is_replay"] = True
+                evt_id = save_run_event(run_id, evt_copy.get("type", "log"), evt_copy)
+                evt_copy["id"] = evt_id
+                await event_bus.broadcast(run_id, evt_copy)
+                await asyncio.sleep(0.08)
+
+            update_run_status(run_id, "completed", completed_at=datetime.now(timezone.utc).isoformat())
+            active_loops.pop(run_id, None)
+
+        active_loops[run_id] = "replay"
+        asyncio.create_task(execute_replay())
+        return {"run_id": run_id, "status": "running", "is_replay": True}
+
+    # Live execution loop
     loop_instance = AutonomousCodingLoop(
         workspace_dir=target_repo,
         task_directive=request.prompt or "Analyze repository and repair defects",
@@ -183,28 +237,45 @@ async def create_run(request: RunCreateRequest):
             summary = await asyncio.to_thread(loop_instance.run)
             # Emit final metrics event
             await event_bus.broadcast(run_id, {
+                "id": len(summary.events_log) + 1,
+                "run_id": run_id,
                 "type": "metrics",
-                "total_tokens": summary.total_tokens_spent,
-                "llm_calls": summary.iterations_count,
-                "reduction_pct": 0.0
+                "message": f"Final metrics: {summary.total_tokens_spent} tokens spent, {summary.iterations_count} iteration(s).",
+                "data": {
+                    "total_tokens": summary.total_tokens_spent,
+                    "provider_tokens": summary.provider_reported_tokens,
+                    "estimated_context_tokens": summary.estimated_context_tokens,
+                    "llm_calls": summary.iterations_count,
+                    "tests_passed": summary.tests_passed,
+                    "is_simulated": summary.is_simulated
+                },
+                "timestamp": datetime.now(timezone.utc).timestamp()
             })
             if summary.diffs:
                 await event_bus.broadcast(run_id, {
+                    "id": len(summary.events_log) + 2,
+                    "run_id": run_id,
                     "type": "diff",
-                    "diff": "\n".join(summary.diffs)
+                    "message": "Final unified diff generated.",
+                    "data": {"diff": "\n".join(summary.diffs)},
+                    "timestamp": datetime.now(timezone.utc).timestamp()
                 })
         except Exception as e:
-            await event_bus.broadcast(run_id, {
+            update_run_status(run_id, "failed", completed_at=datetime.now(timezone.utc).isoformat())
+            err_evt = {
+                "run_id": run_id,
                 "type": "log",
-                "source": "ERROR",
-                "message": f"Execution loop failed: {e}"
-            })
+                "message": f"Execution loop failed: {e}",
+                "data": {"error": str(e)},
+                "timestamp": datetime.now(timezone.utc).timestamp()
+            }
+            save_run_event(run_id, "log", err_evt)
+            await event_bus.broadcast(run_id, err_evt)
         finally:
             active_loops.pop(run_id, None)
 
     asyncio.create_task(execute_background())
-
-    return {"run_id": run_id, "status": "running"}
+    return {"run_id": run_id, "status": "running", "is_replay": False}
 
 @app.get("/api/runs/{run_id}")
 async def get_run(run_id: str):
@@ -216,6 +287,47 @@ async def get_run(run_id: str):
         raise HTTPException(status_code=404, detail="Run not found")
     return dict(row)
 
+@app.get("/api/runs/{run_id}/trace")
+async def get_run_trace_api(run_id: str):
+    trace = get_execution_trace(run_id)
+    if trace:
+        return trace
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    run_row = cursor.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    conn.close()
+    if not run_row:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+
+    events = get_run_events(run_id)
+    return {
+        "run_id": run_id,
+        "status": run_row["status"],
+        "configuration": run_row["configuration"],
+        "repo_path": run_row["repo_path"],
+        "prompt": run_row["prompt"],
+        "metrics": json.loads(run_row["metrics_json"] or "{}"),
+        "diff": run_row["diff_text"] or "",
+        "events": events
+    }
+
+@app.post("/api/runs/{run_id}/replay")
+async def trigger_run_replay(run_id: str):
+    events = get_run_events(run_id)
+    if not events:
+        raise HTTPException(status_code=404, detail=f"No events found to replay for run '{run_id}'")
+
+    async def replay_events():
+        for evt in events:
+            payload = evt.get("payload") or {}
+            payload["is_replay"] = True
+            await event_bus.broadcast(run_id, payload)
+            await asyncio.sleep(0.05)
+
+    asyncio.create_task(replay_events())
+    return {"status": "replaying", "run_id": run_id, "events_count": len(events)}
+
 @app.get("/api/runs/{run_id}/metrics")
 async def get_run_metrics(run_id: str):
     conn = get_connection()
@@ -224,7 +336,7 @@ async def get_run_metrics(run_id: str):
     if not run_row:
         conn.close()
         raise HTTPException(status_code=404, detail="Run not found")
-    
+
     calls_rows = cursor.execute("SELECT * FROM model_calls WHERE run_id = ? ORDER BY id ASC", (run_id,)).fetchall()
     conn.close()
 
@@ -241,29 +353,65 @@ async def get_run_metrics(run_id: str):
 
 @app.get("/api/runs/{run_id}/events")
 async def stream_events(run_id: str, request: Request):
+    last_event_id_header = request.headers.get("last-event-id") or request.query_params.get("last_event_id")
+    after_id = 0
+    if last_event_id_header:
+        try:
+            after_id = int(last_event_id_header)
+        except ValueError:
+            after_id = 0
+
     queue = event_bus.subscribe(run_id)
 
     async def event_generator():
         try:
-            # Emit initial connection event
-            yield {
-                "event": "message",
-                "data": json.dumps({"type": "log", "source": "GATEWAY", "message": f"Connected to telemetry stream for {run_id}"})
-            }
+            # 1. Deliver historical / missed events from database first
+            historical_events = get_run_events(run_id, after_id=after_id)
+            for h_evt in historical_events:
+                payload = h_evt.get("payload") or {}
+                evt_type = payload.get("type", h_evt.get("event_type", "message"))
+                yield {
+                    "id": str(h_evt["id"]),
+                    "event": evt_type,
+                    "data": json.dumps(payload)
+                }
+
+            # Check if run is already finished and no active loop
+            conn = get_connection()
+            cursor = conn.cursor()
+            run_row = cursor.execute("SELECT status FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            conn.close()
+
+            is_already_terminal = run_row and run_row["status"] in ("completed", "cancelled", "failed", "COMPLETED_VERIFIED", "MAX_ITERATIONS_REACHED")
+            if is_already_terminal and run_id not in active_loops:
+                yield {
+                    "id": str(historical_events[-1]["id"] + 1) if historical_events else "1",
+                    "event": "stream_closed",
+                    "data": json.dumps({"status": run_row["status"], "message": f"Run {run_id} is in terminal state."})
+                }
+                return
+
+            # 2. Stream live events as they occur
             while True:
                 if await request.is_disconnected():
                     break
                 try:
                     event_data = await asyncio.wait_for(queue.get(), timeout=2.0)
+                    evt_id = str(event_data.get("id") or "")
+                    evt_type = event_data.get("type", "message")
                     yield {
-                        "event": "message",
+                        "id": evt_id,
+                        "event": evt_type,
                         "data": json.dumps(event_data)
                     }
+
+                    if evt_type in ("finish", "cancelled", "timeout", "failed"):
+                        break
                 except asyncio.TimeoutError:
-                    # Keep-alive ping
+                    # Heartbeat comment to keep SSE connection alive
                     yield {
-                        "event": "ping",
-                        "data": ""
+                        "event": "heartbeat",
+                        "data": json.dumps({"timestamp": datetime.now(timezone.utc).timestamp()})
                     }
         finally:
             event_bus.unsubscribe(run_id, queue)
@@ -272,15 +420,22 @@ async def stream_events(run_id: str, request: Request):
 
 @app.post("/api/runs/{run_id}/cancel")
 async def cancel_run(run_id: str):
-    if run_id in active_loops:
-        active_loops[run_id].cancel()
+    loop = active_loops.get(run_id)
+    if loop and hasattr(loop, "cancel"):
+        loop.cancel()
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE runs SET status = 'cancelled' WHERE run_id = ?", (run_id,))
-    conn.commit()
-    conn.close()
-    await event_bus.broadcast(run_id, {"type": "log", "source": "SYSTEM", "message": "Run cancelled by user request."})
+    update_run_status(run_id, "cancelled", completed_at=datetime.now(timezone.utc).isoformat())
+
+    cancel_evt = {
+        "run_id": run_id,
+        "type": "cancelled",
+        "message": "Run cancelled by user request.",
+        "data": {"status": "cancelled"},
+        "timestamp": datetime.now(timezone.utc).timestamp()
+    }
+    evt_id = save_run_event(run_id, "cancelled", cancel_evt)
+    cancel_evt["id"] = evt_id
+    await event_bus.broadcast(run_id, cancel_evt)
     return {"status": "cancelled", "run_id": run_id}
 
 @app.get("/api/benchmarks")

@@ -81,6 +81,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Cancel active run
+  btnCancel?.addEventListener('click', async () => {
+    if (!currentRunId) return;
+    appendTerminalLine('SYSTEM', `Cancelling run ${currentRunId}...`);
+    btnCancel.disabled = true;
+    try {
+      const resp = await fetch(`/api/runs/${currentRunId}/cancel`, { method: 'POST' });
+      if (resp.ok) {
+        appendTerminalLine('SYSTEM', `Run ${currentRunId} cancellation confirmed.`);
+        traceStatus.textContent = 'Cancelled';
+        traceStatus.className = 'badge-status badge-stale';
+        btnRun.disabled = false;
+      }
+    } catch (e) {
+      appendTerminalLine('ERROR', `Failed to cancel run: ${e.message}`, true);
+    }
+  });
+
   function connectEventStream(runId) {
     if (activeEventSource) {
       activeEventSource.close();
@@ -88,35 +106,107 @@ document.addEventListener('DOMContentLoaded', () => {
 
     activeEventSource = new EventSource(`/api/runs/${runId}/events`);
 
-    activeEventSource.onmessage = (event) => {
+    const handleEventPayload = (event) => {
       try {
         const payload = JSON.parse(event.data);
         handleTraceEvent(payload);
       } catch (e) {
-        console.error('Failed to parse event stream payload:', e);
+        console.error('Failed to parse event payload:', e);
       }
     };
 
-    activeEventSource.onerror = () => {
+    activeEventSource.onmessage = handleEventPayload;
+    activeEventSource.addEventListener('log', handleEventPayload);
+    activeEventSource.addEventListener('state_change', handleEventPayload);
+    activeEventSource.addEventListener('context_selected', handleEventPayload);
+    activeEventSource.addEventListener('stale_detection', handleEventPayload);
+    activeEventSource.addEventListener('model_call', handleEventPayload);
+    activeEventSource.addEventListener('patch_applied', handleEventPayload);
+    activeEventSource.addEventListener('test_executed', handleEventPayload);
+    activeEventSource.addEventListener('diff', handleEventPayload);
+    activeEventSource.addEventListener('metrics', handleEventPayload);
+    activeEventSource.addEventListener('finish', (e) => {
+      handleEventPayload(e);
+      btnRun.disabled = false;
+      btnCancel.disabled = true;
+      traceStatus.textContent = 'Completed';
+      traceStatus.className = 'badge-status badge-current';
+      refreshRunHistory();
+    });
+    activeEventSource.addEventListener('cancelled', (e) => {
+      handleEventPayload(e);
+      btnRun.disabled = false;
+      btnCancel.disabled = true;
+      traceStatus.textContent = 'Cancelled';
+      traceStatus.className = 'badge-status badge-stale';
+      refreshRunHistory();
+    });
+    activeEventSource.addEventListener('stream_closed', (e) => {
+      handleEventPayload(e);
       activeEventSource.close();
       btnRun.disabled = false;
       btnCancel.disabled = true;
-      traceStatus.textContent = 'Finished';
-      traceStatus.className = 'badge-status badge-current';
+    });
+
+    activeEventSource.onerror = () => {
+      btnRun.disabled = false;
+      btnCancel.disabled = true;
     };
   }
 
   function handleTraceEvent(event) {
-    if (event.type === 'log') {
+    const type = event.type || 'log';
+    if (type === 'log') {
       appendTerminalLine(event.source || 'AGENT', event.message);
-    } else if (event.type === 'metrics') {
-      if (topTokens) topTokens.textContent = event.total_tokens || 0;
-      if (topCalls) topCalls.textContent = event.llm_calls || 0;
-      if (topReduction) topReduction.textContent = `${(event.reduction_pct || 0).toFixed(1)}%`;
-    } else if (event.type === 'stale_detection') {
-      renderStaleDetection(event.data);
-    } else if (event.type === 'diff') {
-      if (diffContent) diffContent.textContent = event.diff || '// No changes applied';
+    } else if (type === 'state_change') {
+      appendTerminalLine('STATE', event.message || `State changed: ${event.data?.status}`);
+      if (traceStatus && event.data?.status) {
+        traceStatus.textContent = event.data.status;
+      }
+    } else if (type === 'context_selected') {
+      appendTerminalLine('CONTEXT', event.message);
+      const ctxBadge = document.getElementById('context-tokens-badge');
+      const ctxContent = document.getElementById('context-slices-content');
+      if (ctxBadge && event.data?.estimated_tokens) {
+        ctxBadge.textContent = `${event.data.estimated_tokens} Estimated Tokens (AST)`;
+      }
+      if (ctxContent && event.data?.raw_context) {
+        ctxContent.textContent = event.data.raw_context;
+      }
+    } else if (type === 'metrics') {
+      if (topTokens) topTokens.textContent = (event.data?.total_tokens || event.total_tokens || 0).toLocaleString();
+      if (topCalls) topCalls.textContent = event.data?.llm_calls || event.llm_calls || 0;
+      if (topReduction) topReduction.textContent = `${(event.data?.reduction_pct || event.reduction_pct || 0).toFixed(1)}%`;
+      appendTerminalLine('METRICS', event.message || `Token usage: ${event.data?.total_tokens || event.total_tokens}`);
+    } else if (type === 'stale_detection' || type === 'stale_detection_complete') {
+      if (event.data?.claims) {
+        event.data.claims.forEach(c => renderStaleDetection(c));
+      } else if (event.data) {
+        renderStaleDetection(event.data);
+      }
+      if (topStaleCount && event.data?.stale_count !== undefined) {
+        topStaleCount.textContent = event.data.stale_count;
+      }
+      appendTerminalLine('STALE_DETECTOR', event.message);
+    } else if (type === 'patch_applied') {
+      appendTerminalLine('PATCH', event.message);
+      if (diffContent && event.data?.diff) {
+        diffContent.textContent = event.data.diff;
+      }
+    } else if (type === 'diff') {
+      if (diffContent) diffContent.textContent = event.diff || event.data?.diff || '// No changes applied';
+      appendTerminalLine('DIFF', 'Unified patch diff generated.');
+    } else if (type === 'test_executed' || type === 'test_failed') {
+      appendTerminalLine('TEST', event.message);
+      const vStatus = document.getElementById('verification-status');
+      if (vStatus) {
+        vStatus.textContent = event.data?.passed ? 'Tests Passed' : 'Tests Failing (Repairing)';
+        vStatus.className = event.data?.passed ? 'badge-status badge-current' : 'badge-status badge-stale';
+      }
+    } else if (type === 'cancelled') {
+      appendTerminalLine('SYSTEM', event.message, true);
+    } else if (type === 'finish') {
+      appendTerminalLine('AGENT', event.message);
     }
   }
 
@@ -272,6 +362,82 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btn-refresh-benchmarks')?.addEventListener('click', loadBenchmarkData);
   loadBenchmarkData();
+
+  // Run history management
+  async function refreshRunHistory() {
+    try {
+      const resp = await fetch('/api/runs?limit=30');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const select = document.getElementById('select-history-run');
+      if (!select) return;
+      select.innerHTML = '<option value="">-- Load / Replay Past Run Trace --</option>';
+      (data.runs || []).forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.run_id;
+        const promptSnippet = r.prompt ? r.prompt.slice(0, 30) : 'Run';
+        opt.textContent = `${r.run_id.slice(-12)} [${r.status}] (${r.configuration}) - ${promptSnippet}`;
+        select.appendChild(opt);
+      });
+    } catch (e) {
+      console.warn('Failed to load run history:', e);
+    }
+  }
+
+  document.getElementById('btn-load-history')?.addEventListener('click', async () => {
+    const select = document.getElementById('select-history-run');
+    const runId = select?.value;
+    if (!runId) return;
+
+    try {
+      const resp = await fetch(`/api/runs/${runId}/trace`);
+      if (!resp.ok) throw new Error(`Run trace not found: ${resp.statusText}`);
+      const trace = await resp.json();
+
+      terminalTrace.innerHTML = '';
+      appendTerminalLine('SYSTEM', `Loaded trace for run: ${runId} (Status: ${trace.status})`);
+
+      const events = trace.events || trace.events_log || [];
+      events.forEach(evt => {
+        const p = evt.payload || evt;
+        appendTerminalLine(p.type ? p.type.toUpperCase() : 'EVENT', p.message || JSON.stringify(p.data || {}));
+        if (p.type === 'context_selected' && p.data?.estimated_tokens) {
+          const ctxBadge = document.getElementById('context-tokens-badge');
+          if (ctxBadge) ctxBadge.textContent = `${p.data.estimated_tokens} Estimated Tokens`;
+        }
+      });
+
+      if (trace.diff) {
+        if (diffContent) diffContent.textContent = trace.diff;
+      }
+      if (traceStatus) {
+        traceStatus.textContent = trace.status;
+        traceStatus.className = trace.status === 'COMPLETED_VERIFIED' ? 'badge-status badge-current' : 'badge-status badge-stale';
+      }
+    } catch (e) {
+      appendTerminalLine('ERROR', e.message, true);
+    }
+  });
+
+  document.getElementById('btn-replay-history')?.addEventListener('click', async () => {
+    const select = document.getElementById('select-history-run');
+    const runId = select?.value;
+    if (!runId) return;
+
+    terminalTrace.innerHTML = '';
+    appendTerminalLine('SYSTEM', `Replaying event telemetry stream for ${runId}...`);
+    const repIndicator = document.getElementById('replay-indicator');
+    if (repIndicator) repIndicator.style.display = 'inline-block';
+
+    connectEventStream(runId);
+    try {
+      await fetch(`/api/runs/${runId}/replay`, { method: 'POST' });
+    } catch (e) {
+      appendTerminalLine('ERROR', `Replay request failed: ${e.message}`, true);
+    }
+  });
+
+  refreshRunHistory();
 
   // Navigation tab interaction
   document.querySelectorAll('.nav-item').forEach(item => {

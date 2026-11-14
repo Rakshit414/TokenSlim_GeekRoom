@@ -134,6 +134,17 @@
                 <button id="btn-run" class="btn btn-coral">Execute Autonomous Agent</button>
               </div>
             </div>
+
+            <!-- Past Run History & Replay Bar -->
+            <div style="display: flex; gap: 10px; margin-top: 14px; align-items: center; border-top: 1px solid var(--cream-border); padding-top: 12px; font-size: 12px;">
+              <span style="font-weight: 600; color: var(--navy); white-space: nowrap;">Run History:</span>
+              <select id="select-history-run" class="form-select" style="flex: 1; max-width: 380px; font-size: 11px;">
+                <option value="">-- Load / Replay Past Run Trace --</option>
+              </select>
+              <button id="btn-load-history" class="btn btn-secondary" style="padding: 5px 12px; font-size: 11px;">Inspect Trace</button>
+              <button id="btn-replay-history" class="btn btn-secondary" style="padding: 5px 12px; font-size: 11px;">Replay Stream</button>
+              <span id="replay-indicator" class="badge-status badge-uncertain" style="display: none;">[REPLAY ACTIVE]</span>
+            </div>
           </div>
         </section>
 
@@ -179,6 +190,20 @@
             </div>
           </section>
         </div>
+
+        <!-- Selective Context & AST Slices Inspector -->
+        <section class="panel" id="panel-context-inspector">
+          <div class="panel-header">
+            <div class="panel-title">Selective Context & AST Slices Inspector</div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span id="context-tokens-badge" class="badge-status badge-uncertain">0 Estimated Tokens</span>
+              <span class="badge-status badge-current">[AST Minimal Slices]</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <pre id="context-slices-content" class="code-editor" style="padding: 12px; min-height: 90px; max-height: 180px; overflow-y: auto;">// Targeted AST code slices and token estimates retrieved by LeanCode will appear here.</pre>
+          </div>
+        </section>
 
         <!-- Diff & Verification Results -->
         <section class="panel">

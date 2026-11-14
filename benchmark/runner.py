@@ -32,12 +32,19 @@ class TaskBenchmarkRunResult(BaseModel):
     baseline_passed: bool
     iterations_count: int
     wall_clock_seconds: float
-    total_tokens_spent: int
-    provider_reported_tokens: Optional[int] = None
+    # Explicit separation of simulated vs estimated vs provider tokens:
+    is_simulated: bool = False
+    simulated_tokens_total: int = 0
+    locally_estimated_context_tokens: int = 0
+    provider_reported_input_tokens: Optional[int] = None
+    provider_reported_output_tokens: Optional[int] = None
+    provider_reported_total_tokens: Optional[int] = None
+    # Retained for backward compatibility
+    total_tokens_spent: int = 0
     estimated_context_tokens: int = 0
+    provider_reported_tokens: Optional[int] = None
     tavily_searches_count: int = 0
     stale_detections_count: int = 0
-    is_simulated: bool = False
     calculated_cost: Optional[float] = None
     error_message: Optional[str] = None
 
@@ -239,7 +246,13 @@ class BenchmarkRunner:
 
             summary = loop.run()
 
-            # Record task benchmark result
+            # Record task benchmark result with strict separation of simulated vs real metrics
+            is_sim = summary.is_simulated or self.use_deterministic_mocks
+            sim_tokens = summary.total_tokens_spent if is_sim else 0
+            prov_input = summary.ledger_summary.get("provider_reported_input_tokens") if not is_sim else None
+            prov_output = summary.ledger_summary.get("provider_reported_output_tokens") if not is_sim else None
+            prov_total = summary.provider_reported_tokens if not is_sim else None
+
             return TaskBenchmarkRunResult(
                 task_id=task_id,
                 configuration=configuration,
@@ -249,12 +262,17 @@ class BenchmarkRunner:
                 baseline_passed=summary.baseline_test_passed,
                 iterations_count=summary.iterations_count,
                 wall_clock_seconds=round(summary.wall_clock_seconds, 3),
+                is_simulated=is_sim,
+                simulated_tokens_total=sim_tokens,
+                locally_estimated_context_tokens=summary.estimated_context_tokens,
+                provider_reported_input_tokens=prov_input,
+                provider_reported_output_tokens=prov_output,
+                provider_reported_total_tokens=prov_total,
                 total_tokens_spent=summary.total_tokens_spent,
-                provider_reported_tokens=summary.provider_reported_tokens,
                 estimated_context_tokens=summary.estimated_context_tokens,
+                provider_reported_tokens=prov_total,
                 tavily_searches_count=summary.tavily_searches,
                 stale_detections_count=len(summary.stale_detections),
-                is_simulated=summary.is_simulated or self.use_deterministic_mocks,
                 calculated_cost=summary.ledger_summary.get("total_cost")
             )
 
@@ -276,7 +294,7 @@ class BenchmarkRunner:
             for cfg in configurations:
                 res = self.run_task(tid, cfg)
                 results.append(res)
-                print(f"[{cfg:15}] Task {tid:35} -> {'PASSED' if res.passed else 'FAILED'} (Tokens: {res.total_tokens_spent}, Context: {res.estimated_context_tokens})")
+                print(f"[{cfg:15}] Task {tid:35} -> {'PASSED' if res.passed else 'FAILED'} (Simulated: {res.simulated_tokens_total}, Context: {res.locally_estimated_context_tokens})")
 
         # Compute summary metrics for each configuration
         config_metrics: Dict[str, Dict[str, Any]] = {}
@@ -285,8 +303,9 @@ class BenchmarkRunner:
             total_tasks = len(cfg_res)
             passed_tasks = sum(1 for r in cfg_res if r.passed)
             pass_rate = round((passed_tasks / total_tasks * 100.0) if total_tasks else 0.0, 1)
-            total_tokens = sum(r.total_tokens_spent for r in cfg_res)
-            total_context_tokens = sum(r.estimated_context_tokens for r in cfg_res)
+            total_simulated = sum(r.simulated_tokens_total for r in cfg_res)
+            total_provider = sum(r.provider_reported_total_tokens or 0 for r in cfg_res) if any(r.provider_reported_total_tokens is not None for r in cfg_res) else None
+            total_context = sum(r.locally_estimated_context_tokens for r in cfg_res)
             avg_duration = round(sum(r.wall_clock_seconds for r in cfg_res) / total_tasks, 2) if total_tasks else 0.0
             avg_iterations = round(sum(r.iterations_count for r in cfg_res) / total_tasks, 2) if total_tasks else 0.0
             tavily_searches = sum(r.tavily_searches_count for r in cfg_res)
@@ -296,8 +315,11 @@ class BenchmarkRunner:
                 "tasks_total": total_tasks,
                 "tasks_passed": passed_tasks,
                 "pass_rate_pct": pass_rate,
-                "total_tokens_spent": total_tokens,
-                "total_context_tokens": total_context_tokens,
+                "is_simulated": self.use_deterministic_mocks,
+                "total_simulated_tokens": total_simulated,
+                "total_provider_reported_tokens": total_provider,
+                "total_context_tokens": total_context,
+                "total_tokens_spent": total_simulated,  # Legacy alias
                 "average_iterations": avg_iterations,
                 "average_duration_seconds": avg_duration,
                 "tavily_searches": tavily_searches,
@@ -306,7 +328,6 @@ class BenchmarkRunner:
 
         # Calculate comparative reduction percentages
         naive_context = config_metrics["naive_baseline"]["total_context_tokens"] or 1
-        naive_tokens = config_metrics["naive_baseline"]["total_tokens_spent"] or 1
 
         leancode_context = config_metrics["leancode"]["total_context_tokens"]
         leancode_tavily_context = config_metrics["leancode_tavily"]["total_context_tokens"]

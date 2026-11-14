@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 class ModelPricing(BaseModel):
     model_name: str
+    currency: str = "USD"
+    rate_unit: str = "USD per 1,000,000 tokens"
     input_rate_per_million: float
     output_rate_per_million: float
     cached_input_rate_per_million: float
@@ -20,63 +22,75 @@ class ModelPricing(BaseModel):
 MODEL_PRICING_CATALOG: Dict[str, ModelPricing] = {
     "gpt-4o-mini": ModelPricing(
         model_name="gpt-4o-mini",
+        currency="USD",
+        rate_unit="USD per 1,000,000 tokens",
         input_rate_per_million=0.15,
         output_rate_per_million=0.60,
         cached_input_rate_per_million=0.075,
-        pricing_source="OpenAI Pricing Documentation",
+        pricing_source="OpenAI Official Pricing Documentation",
         official_source_url="https://openai.com/api/pricing/",
         last_updated="2026-01-15",
-        verification_date="2026-11-13"
+        verification_date="2026-11-14"
     ),
     "gpt-4o": ModelPricing(
         model_name="gpt-4o",
+        currency="USD",
+        rate_unit="USD per 1,000,000 tokens",
         input_rate_per_million=2.50,
         output_rate_per_million=10.00,
         cached_input_rate_per_million=1.25,
-        pricing_source="OpenAI Pricing Documentation",
+        pricing_source="OpenAI Official Pricing Documentation",
         official_source_url="https://openai.com/api/pricing/",
         last_updated="2026-01-15",
-        verification_date="2026-11-13"
+        verification_date="2026-11-14"
     ),
     "claude-3-5-haiku-20241022": ModelPricing(
         model_name="claude-3-5-haiku-20241022",
+        currency="USD",
+        rate_unit="USD per 1,000,000 tokens",
         input_rate_per_million=0.80,
         output_rate_per_million=4.00,
         cached_input_rate_per_million=0.08,
-        pricing_source="Anthropic Pricing Documentation",
+        pricing_source="Anthropic Official Pricing Documentation",
         official_source_url="https://www.anthropic.com/pricing",
         last_updated="2026-01-15",
-        verification_date="2026-11-13"
+        verification_date="2026-11-14"
     ),
     "claude-3-5-sonnet-20241022": ModelPricing(
         model_name="claude-3-5-sonnet-20241022",
+        currency="USD",
+        rate_unit="USD per 1,000,000 tokens",
         input_rate_per_million=3.00,
         output_rate_per_million=15.00,
         cached_input_rate_per_million=0.30,
-        pricing_source="Anthropic Pricing Documentation",
+        pricing_source="Anthropic Official Pricing Documentation",
         official_source_url="https://www.anthropic.com/pricing",
         last_updated="2026-01-15",
-        verification_date="2026-11-13"
+        verification_date="2026-11-14"
     ),
     "gemini-1.5-flash": ModelPricing(
         model_name="gemini-1.5-flash",
+        currency="USD",
+        rate_unit="USD per 1,000,000 tokens",
         input_rate_per_million=0.075,
         output_rate_per_million=0.30,
         cached_input_rate_per_million=0.01875,
-        pricing_source="Google Cloud AI Pricing Documentation",
+        pricing_source="Google Cloud AI Official Pricing Documentation",
         official_source_url="https://ai.google.dev/pricing",
         last_updated="2026-01-15",
-        verification_date="2026-11-13"
+        verification_date="2026-11-14"
     ),
     "gemini-1.5-pro": ModelPricing(
         model_name="gemini-1.5-pro",
+        currency="USD",
+        rate_unit="USD per 1,000,000 tokens",
         input_rate_per_million=1.25,
         output_rate_per_million=5.00,
         cached_input_rate_per_million=0.3125,
-        pricing_source="Google Cloud AI Pricing Documentation",
+        pricing_source="Google Cloud AI Official Pricing Documentation",
         official_source_url="https://ai.google.dev/pricing",
         last_updated="2026-01-15",
-        verification_date="2026-11-13"
+        verification_date="2026-11-14"
     )
 }
 

@@ -126,6 +126,14 @@ def init_db():
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim ON claim_evidence(claim_id)
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS execution_traces (
+            run_id TEXT PRIMARY KEY,
+            trace_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES runs (run_id)
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -242,5 +250,101 @@ def get_correction_for_claim(claim_id: str) -> Optional[Dict[str, Any]]:
     """, (claim_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
+
+def save_run_event(run_id: str, event_type: str, payload: Dict[str, Any]) -> int:
+    """Persist an individual execution event to the database and return its row ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_str = datetime.now().isoformat()
+    cursor.execute("""
+        INSERT INTO run_events (run_id, event_type, payload_json, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (run_id, event_type, json.dumps(payload), now_str))
+    event_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return event_id
+
+def get_run_events(run_id: str, after_id: int = 0) -> List[Dict[str, Any]]:
+    """Retrieve all persisted events for a run, optionally filtering after a specific event ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    rows = cursor.execute("""
+        SELECT id, run_id, event_type, payload_json, created_at
+        FROM run_events
+        WHERE run_id = ? AND id > ?
+        ORDER BY id ASC
+    """, (run_id, after_id)).fetchall()
+    conn.close()
+
+    events = []
+    for r in rows:
+        item = dict(r)
+        try:
+            item["payload"] = json.loads(item["payload_json"])
+        except Exception:
+            item["payload"] = {}
+        events.append(item)
+    return events
+
+def save_execution_trace(run_id: str, trace_data: Dict[str, Any]):
+    """Persist the complete execution summary trace into SQLite."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_str = datetime.now().isoformat()
+    cursor.execute("""
+        INSERT INTO execution_traces (run_id, trace_json, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(run_id) DO UPDATE SET trace_json = excluded.trace_json
+    """, (run_id, json.dumps(trace_data), now_str))
+    conn.commit()
+    conn.close()
+
+def get_execution_trace(run_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve the persisted execution summary trace for a run."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT trace_json FROM execution_traces WHERE run_id = ?", (run_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        return json.loads(row["trace_json"])
+    except Exception:
+        return None
+
+def get_all_runs(limit: int = 50) -> List[Dict[str, Any]]:
+    """Retrieve recent runs from the database."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    rows = cursor.execute("""
+        SELECT run_id, status, configuration, repo_path, prompt, token_budget,
+               is_replay, metrics_json, created_at, completed_at
+        FROM runs
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        run_dict = dict(r)
+        try:
+            run_dict["metrics"] = json.loads(run_dict["metrics_json"] or "{}")
+        except Exception:
+            run_dict["metrics"] = {}
+        results.append(run_dict)
+    return results
+
+def update_run_status(run_id: str, status: str, completed_at: Optional[str] = None):
+    """Update execution status and optional completion timestamp for a run."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if completed_at:
+        cursor.execute("UPDATE runs SET status = ?, completed_at = ? WHERE run_id = ?", (status, completed_at, run_id))
+    else:
+        cursor.execute("UPDATE runs SET status = ? WHERE run_id = ?", (status, run_id))
+    conn.commit()
+    conn.close()
 
 init_db()
