@@ -288,3 +288,56 @@ def test_metrics_separation_api_contract():
     assert data["metrics_summary"]["provider_reported_tokens"] is None
     assert data["model_calls"][0]["is_simulated"] == 1
     assert data["model_calls"][0]["provider"] == "mock-adapter"
+
+def test_offline_status_and_reference_pricing_presentation():
+    """Verify that health and telemetry endpoints do not report active connections when offline."""
+    # 1. Health endpoint status presentation
+    resp_health = client.get("/api/health")
+    assert resp_health.status_code == 200
+    health_data = resp_health.json()
+    assert health_data["status"] == "ok"
+    assert health_data["bifrost"]["status"] in ("not_verified", "unconfigured", "unreachable")
+    assert health_data["tavily"]["status"] in ("unconfigured", "not_verified", "unreachable")
+    assert health_data["tavily"]["configured"] is False or os.getenv("TAVILY_API_KEY", "") != ""
+
+    # 2. Bifrost telemetry rate card reference pricing presentation
+    resp_telem = client.get("/api/bifrost/telemetry")
+    assert resp_telem.status_code == 200
+    telem_data = resp_telem.json()
+    assert "rate_card" in telem_data
+    rate_card = telem_data["rate_card"]
+    assert len(rate_card) >= 4
+    for item in rate_card:
+        # Status must explicitly indicate reference/catalogue status when offline
+        if not telem_data["gateway"].get("probe_enabled"):
+            assert "Reference" in item["status"] or "Catalogue" in item["status"]
+            assert "Active Default (Live)" not in item["status"]
+
+def test_replay_trace_timestamp_and_identity_preservation():
+    """Verify that recorded traces preserve timestamps, are flagged as replay, and distinguish mock adapters."""
+    resp_trace = client.get("/api/runs/demo_trace_pydantic_v2_migration/trace")
+    assert resp_trace.status_code == 200
+    trace = resp_trace.json()
+    assert trace["run_id"] == "demo_trace_pydantic_v2_migration"
+    assert trace["is_replay"] == 1 or trace["is_replay"] is True
+    assert len(trace["events"]) > 0
+
+    # Ensure events have timestamps preserved
+    first_evt = trace["events"][0]
+    assert "timestamp" in first_evt or "created_at" in first_evt
+
+def test_stale_detection_offline_heuristic_flagging():
+    """Verify that stale-answer detector explicitly flags offline heuristic evidence."""
+    payload = {
+        "task": "Test Pydantic v1 to v2 migration",
+        "claims": [{"claim_text": "user.dict() deprecated in v2", "technology": "pydantic"}],
+        "max_searches": 2
+    }
+    resp = client.post("/api/stale-detection/runs", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_simulated"] is True
+    assert len(data["claims"]) > 0
+    claim = data["claims"][0]
+    assert claim["is_simulated"] is True
+    assert "model_dump" in (claim.get("recommended_correction") or claim.get("suggested_patch") or "")

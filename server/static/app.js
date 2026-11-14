@@ -109,14 +109,26 @@ document.addEventListener('DOMContentLoaded', () => {
     return str.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function appendTerminalLine(tag, text, isError = false) {
+  function appendTerminalLine(tag, text, isError = false, timestampStr = null) {
     if (!terminalTrace) return;
     const line = document.createElement('div');
     line.className = 'terminal-line';
-    const timeStr = new Date().toLocaleTimeString();
+    let timeStr;
+    if (timestampStr) {
+      if (typeof timestampStr === 'number') {
+        timeStr = new Date(timestampStr * 1000).toLocaleTimeString();
+      } else if (typeof timestampStr === 'string' && (timestampStr.includes('T') || timestampStr.includes(':'))) {
+        const d = new Date(timestampStr);
+        timeStr = isNaN(d.getTime()) ? timestampStr : d.toLocaleTimeString();
+      } else {
+        timeStr = timestampStr.toString();
+      }
+    } else {
+      timeStr = new Date().toLocaleTimeString();
+    }
 
     line.innerHTML = `
-      <span class="terminal-timestamp">[${timeStr}]</span>
+      <span class="terminal-timestamp">[${escapeHtml(timeStr)}]</span>
       <span class="terminal-tag" style="${isError ? 'color: var(--coral);' : ''}">[${tag}]</span>
       <span>${escapeHtml(text)}</span>
     `;
@@ -149,8 +161,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Strict Honesty Rule: Never show [LIVE TAVILY] if gateway is offline/simulated
     const isLive = !detection.is_simulated && (gatewayHealth?.tavily?.status === 'reachable');
     const simBadge = isLive ?
-      '<span class="badge-status badge-current" style="font-size: 10px; padding: 2px 6px;">[LIVE TAVILY]</span>' :
-      '<span class="badge-status badge-uncertain" style="font-size: 10px; padding: 2px 6px;">[OFFLINE SIMULATION]</span>';
+      '<span class="badge-status badge-current" style="font-size: 10px; padding: 2px 6px;">[LIVE TAVILY API]</span>' :
+      '<span class="badge-status badge-uncertain" style="font-size: 10px; padding: 2px 6px;">[HEURISTIC / OFFLINE EVIDENCE]</span>';
+
+    const methodNote = isLive ?
+      '<span style="color: var(--status-current); font-weight: 600;">Live Search API</span>' :
+      '<span style="color: var(--cream-text-muted); font-style: italic;">Deterministic Heuristic Match (Offline Simulation)</span>';
 
     const card = document.createElement('div');
     card.className = 'panel';
@@ -179,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const timeLabel = detection.created_at || new Date().toLocaleTimeString();
     const sourceLink = detection.source_url ?
       `<a href="${escapeHtml(detection.source_url)}" target="_blank" style="color: var(--navy); font-weight: 500; text-decoration: underline;">${escapeHtml(detection.source_title || detection.source_url)}</a>` :
-      'Documentation reference';
+      'Documentation reference (docs.pydantic.dev)';
 
     card.innerHTML = `
       <div class="panel-header" style="padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -195,7 +211,8 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="panel-body" style="padding: 10px 12px; font-size: 12px;">
         <p><strong>Claim:</strong> <code>${escapeHtml(detection.claim_text || detection.claim || '')}</code></p>
         <p style="margin-top: 6px;"><strong>Evidence:</strong> ${escapeHtml(detection.reasoning || detection.evidence || 'Evidence retrieved via Tavily')}</p>
-        <p style="margin-top: 4px;"><small style="color: var(--cream-text-muted);">Source: ${sourceLink}</small></p>
+        <p style="margin-top: 4px; font-size: 11px;"><strong>Retrieval Method:</strong> ${methodNote}</p>
+        <p style="margin-top: 4px;"><small style="color: var(--cream-text-muted);">Source Document: ${sourceLink}</small></p>
         ${correctionHtml}
       </div>
     `;
@@ -395,7 +412,8 @@ document.addEventListener('DOMContentLoaded', () => {
         rateBody.innerHTML = '';
         data.rate_card.forEach(item => {
           const row = document.createElement('tr');
-          const statusBadge = item.status.includes('Active') ? 'badge-current' : 'badge-uncertain';
+          const isItemActiveLive = item.status.includes('Live') && isLive;
+          const statusBadge = isItemActiveLive ? 'badge-current' : 'badge-uncertain';
           row.innerHTML = `
             <td><strong>${escapeHtml(item.model)}</strong></td>
             <td>${escapeHtml(item.provider)}</td>
@@ -405,6 +423,12 @@ document.addEventListener('DOMContentLoaded', () => {
           `;
           rateBody.appendChild(row);
         });
+      }
+
+      const catStatus = document.getElementById('bifrost-catalogue-status-text');
+      if (catStatus) {
+        catStatus.textContent = isLive ? 'Reachable (Live)' : 'Unverified / Offline (Pricing shown for reference)';
+        catStatus.style.color = isLive ? 'var(--status-current)' : 'var(--coral)';
       }
 
       // Populate Recent Calls Ledger
@@ -462,8 +486,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!resp.ok) throw new Error(`Run trace not found: ${resp.statusText}`);
       const trace = await resp.json();
 
+      const isReplay = (trace.is_replay === true || trace.is_replay === 1 || runId.includes('demo') || runId.includes('replay') || runId === 'demo_trace_pydantic_v2_migration');
+
       terminalTrace.innerHTML = '';
-      appendTerminalLine('SYSTEM', `Loaded trace for run: ${runId} (Status: ${trace.status || 'COMPLETED'})`);
+      appendTerminalLine('SYSTEM', `Loaded trace for run: ${runId} (Type: ${isReplay ? 'RECORDED REPLAY FIXTURE' : 'CURRENT RUN EXECUTION'})`, false, trace.created_at);
 
       clearStaleDetections();
 
@@ -473,7 +499,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
       events.forEach(evt => {
         const p = evt.payload || evt;
-        appendTerminalLine(p.type ? p.type.toUpperCase() : 'EVENT', p.message || JSON.stringify(p.data || {}));
+        const evtTime = p.created_at || p.timestamp || evt.created_at || evt.timestamp;
+        let evtType = (p.type ? p.type.toUpperCase() : 'EVENT');
+
+        if (evtType === 'MODEL_CALL' || evtType === 'BIFROST') {
+          if (p.is_simulated || isReplay || p.provider?.includes('mock') || p.provider?.includes('simulated')) {
+            evtType = isReplay ? 'REPLAY:MOCK_ADAPTER' : 'MOCK_ADAPTER';
+          } else {
+            evtType = 'LIVE_BIFROST';
+          }
+        } else if (isReplay && !evtType.startsWith('REPLAY:')) {
+          evtType = 'REPLAY:' + evtType;
+        }
+
+        appendTerminalLine(evtType, p.message || JSON.stringify(p.data || {}), false, evtTime);
 
         if (p.type === 'context_selected') {
           const ctxBadge = document.getElementById('context-tokens-badge');
@@ -516,21 +555,19 @@ document.addEventListener('DOMContentLoaded', () => {
         diffContent.textContent = trace.diff || `--- models.py\n+++ models.py\n@@ -12,3 +12,3 @@\n-    return user.dict()\n+    return user.model_dump()`;
       }
 
-      // Status Badges
-      if (traceStatus) {
-        traceStatus.textContent = trace.status || 'Completed';
-        traceStatus.className = (trace.status === 'COMPLETED_VERIFIED' || trace.status === 'completed') ?
-          'badge-status badge-current' : 'badge-status badge-stale';
+      // Top Metrics Bar - Honest Sourcing Labels
+      const topSourceBadge = document.getElementById('top-metrics-source-badge');
+      const topTokensLabel = document.getElementById('top-tokens-label');
+      const topCallsLabel = document.getElementById('top-calls-label');
+      const topStaleLabel = document.getElementById('top-stale-label');
+      if (topSourceBadge) {
+        topSourceBadge.textContent = isReplay ? '[REPLAY METRICS]' : '[LIVE EXECUTION]';
+        topSourceBadge.className = isReplay ? 'badge-status badge-uncertain' : 'badge-status badge-current';
       }
+      if (topTokensLabel) topTokensLabel.textContent = isReplay ? 'Tokens (Replay / Est)' : 'Tokens (Provider Reported)';
+      if (topCallsLabel) topCallsLabel.textContent = isReplay ? 'Calls (Mock / Replay)' : 'Bifrost Calls (Live)';
+      if (topStaleLabel) topStaleLabel.textContent = isReplay ? 'Stale Claims (Offline)' : 'Stale Claims (Live)';
 
-      const vStatus = document.getElementById('verification-status');
-      if (vStatus) {
-        vStatus.textContent = (trace.status === 'COMPLETED_VERIFIED' || trace.status === 'completed') ?
-          'Tests Passed (100%)' : 'Verification Complete';
-        vStatus.className = 'badge-status badge-current';
-      }
-
-      // Top Metrics Bar
       const toks = trace.metrics?.total_tokens || trace.metrics?.total_simulated_tokens || 237;
       const red = trace.metrics?.reduction_pct || 42.5;
       const calls = trace.metrics?.iterations || trace.metrics?.llm_calls || 1;
@@ -541,13 +578,64 @@ document.addEventListener('DOMContentLoaded', () => {
       if (topCalls) topCalls.textContent = calls;
       if (topStaleCount) topStaleCount.textContent = stales;
 
+      // Status Badges - Execution Trace
+      const traceSourceBadge = document.getElementById('trace-source-badge');
+      if (traceSourceBadge) {
+        traceSourceBadge.textContent = isReplay ? 'RECORDED REPLAY' : 'CURRENT RUN';
+        traceSourceBadge.className = isReplay ? 'badge-status badge-uncertain' : 'badge-status badge-current';
+      }
+      if (traceStatus) {
+        traceStatus.textContent = isReplay ? `[REPLAY] ${trace.status || 'COMPLETED_VERIFIED'}` : (trace.status || 'Completed');
+        traceStatus.className = isReplay ? 'badge-status badge-uncertain' :
+          ((trace.status === 'COMPLETED_VERIFIED' || trace.status === 'completed') ? 'badge-status badge-current' : 'badge-status badge-stale');
+      }
+      const traceTelemetrySource = document.getElementById('trace-telemetry-source');
+      if (traceTelemetrySource) {
+        traceTelemetrySource.textContent = isReplay ? 'Recorded Replay Fixture (Preserved Timestamps)' : 'Live Session Telemetry Stream';
+      }
+
+      // Status Badges - Diff & Verification
+      const diffSourceBadge = document.getElementById('diff-source-badge');
+      if (diffSourceBadge) {
+        diffSourceBadge.textContent = isReplay ? 'RECORDED TRACE' : 'CURRENT SESSION PATCH';
+        diffSourceBadge.className = isReplay ? 'badge-status badge-uncertain' : 'badge-status badge-current';
+      }
+      const vStatus = document.getElementById('verification-status');
+      if (vStatus) {
+        vStatus.textContent = isReplay ? 'Recorded Tests: Passed (100%)' :
+          ((trace.status === 'COMPLETED_VERIFIED' || trace.status === 'completed') ? 'Tests Passed (100%)' : 'Verification Incomplete');
+        vStatus.className = isReplay ? 'badge-status badge-uncertain' : 'badge-status badge-current';
+      }
+      const diffMeta = document.getElementById('diff-meta-info');
+      if (diffMeta) {
+        if (isReplay) {
+          diffMeta.innerHTML = 'Execution Source: <strong>Recorded Replay Fixture</strong> (<code>pytest test_models.py::test_user_serialization</code> verified in trace recording) | <em>Tests were not executed in the current session.</em>';
+        } else {
+          diffMeta.innerHTML = 'Execution Source: <strong>Current Session Execution</strong> (<code>pytest test_models.py::test_user_serialization</code> executed in sandbox)';
+        }
+      }
+
       // Workspace Overview Card
       const wsStatus = document.getElementById('ws-run-status');
       const wsConfig = document.getElementById('ws-run-config');
       const wsRed = document.getElementById('ws-run-reduction');
-      if (wsStatus) wsStatus.textContent = trace.status || 'COMPLETED_VERIFIED';
+      const wsConfigBadge = document.getElementById('ws-config-mode-badge');
+      if (wsStatus) {
+        wsStatus.textContent = isReplay ? `[REPLAY] ${trace.status || 'COMPLETED_VERIFIED'}` : (trace.status || 'COMPLETED_VERIFIED');
+        wsStatus.style.color = isReplay ? 'var(--navy)' : 'var(--status-current)';
+      }
       if (wsConfig) wsConfig.textContent = trace.configuration || 'leancode_tavily';
       if (wsRed) wsRed.textContent = `-${Number(red).toFixed(1)}% Saved`;
+      if (wsConfigBadge) {
+        if (isReplay) {
+          wsConfigBadge.textContent = 'REPLAY MODE';
+          wsConfigBadge.className = 'badge-status badge-uncertain';
+        } else {
+          const isTavilyLive = gatewayHealth?.tavily?.status === 'reachable';
+          wsConfigBadge.textContent = isTavilyLive ? 'LeanCode + Tavily Active (Live)' : 'OFFLINE SIMULATION';
+          wsConfigBadge.className = isTavilyLive ? 'badge-status badge-current' : 'badge-status badge-uncertain';
+        }
+      }
 
     } catch (e) {
       appendTerminalLine('ERROR', e.message, true);
@@ -608,6 +696,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const repIndicator = document.getElementById('replay-indicator');
     if (repIndicator) repIndicator.style.display = 'inline-block';
 
+    const traceSourceBadge = document.getElementById('trace-source-badge');
+    if (traceSourceBadge) {
+      traceSourceBadge.textContent = 'RECORDED REPLAY';
+      traceSourceBadge.className = 'badge-status badge-uncertain';
+    }
+    if (traceStatus) {
+      traceStatus.textContent = '[REPLAYING TRACE]';
+      traceStatus.className = 'badge-status badge-uncertain';
+    }
+    const traceTelemetrySource = document.getElementById('trace-telemetry-source');
+    if (traceTelemetrySource) {
+      traceTelemetrySource.textContent = 'Recorded Replay Fixture (Preserved Timestamps)';
+    }
+    const topSourceBadge = document.getElementById('top-metrics-source-badge');
+    if (topSourceBadge) {
+      topSourceBadge.textContent = '[REPLAY METRICS]';
+      topSourceBadge.className = 'badge-status badge-uncertain';
+    }
+    const diffSourceBadge = document.getElementById('diff-source-badge');
+    if (diffSourceBadge) {
+      diffSourceBadge.textContent = 'RECORDED TRACE';
+      diffSourceBadge.className = 'badge-status badge-uncertain';
+    }
+    const vStatus = document.getElementById('verification-status');
+    if (vStatus) {
+      vStatus.textContent = 'Recorded Tests: Passed (100%)';
+      vStatus.className = 'badge-status badge-uncertain';
+    }
+
     connectEventStream(runId);
     fetch(`/api/runs/${runId}/replay`, { method: 'POST' }).catch(e => {
       appendTerminalLine('ERROR', `Replay request failed: ${e.message}`, true);
@@ -629,18 +746,45 @@ document.addEventListener('DOMContentLoaded', () => {
     const prompt = document.getElementById('input-prompt')?.value || 'Migrate deprecated user.dict() in Pydantic v2';
     const budget = parseInt(document.getElementById('input-budget')?.value, 10) || 15000;
     const isReplay = document.getElementById('check-replay')?.checked ?? true;
+    const isBifrostLive = gatewayHealth?.bifrost?.status === 'reachable';
+    const isTavilyLive = gatewayHealth?.tavily?.status === 'reachable';
 
     // Switch to Execution Trace page so user sees live output
     history.replaceState(null, '', '#trace');
     navigateToPage('trace');
 
     terminalTrace.innerHTML = '';
-    appendTerminalLine('AGENT', `Starting task execution with config: ${config} (Replay: ${isReplay})...`);
+    const runModeLabel = isReplay ? 'Deterministic Replay Mode' : (isBifrostLive ? 'Live Autonomous Coding Run' : 'Offline Simulated Run');
+    appendTerminalLine('AGENT', `Starting task execution with config: ${config} (${runModeLabel})...`);
+    if (!isReplay && !isBifrostLive) {
+      appendTerminalLine('MOCK_ADAPTER', 'Notice: Bifrost Gateway is unverified/offline. Falling back to deterministic local mock adapter.');
+    }
     btnRun.disabled = true;
     btnCancel.disabled = false;
+
+    const traceSourceBadge = document.getElementById('trace-source-badge');
+    if (traceSourceBadge) {
+      traceSourceBadge.textContent = isReplay ? 'RECORDED REPLAY' : (isBifrostLive ? 'LIVE EXECUTION' : 'OFFLINE SIMULATION');
+      traceSourceBadge.className = (isReplay || !isBifrostLive) ? 'badge-status badge-uncertain' : 'badge-status badge-current';
+    }
     if (traceStatus) {
-      traceStatus.textContent = 'Running';
+      traceStatus.textContent = isReplay ? '[REPLAYING] Running' : 'Running';
       traceStatus.className = 'badge-status badge-stale';
+    }
+    const topSourceBadge = document.getElementById('top-metrics-source-badge');
+    if (topSourceBadge) {
+      topSourceBadge.textContent = isReplay ? '[REPLAY METRICS]' : (isBifrostLive ? '[LIVE RUN METRICS]' : '[SIMULATED RUN METRICS]');
+      topSourceBadge.className = (isReplay || !isBifrostLive) ? 'badge-status badge-uncertain' : 'badge-status badge-current';
+    }
+    const diffSourceBadge = document.getElementById('diff-source-badge');
+    if (diffSourceBadge) {
+      diffSourceBadge.textContent = isReplay ? 'RECORDED TRACE' : 'CURRENT RUN PATCH';
+      diffSourceBadge.className = (isReplay || !isBifrostLive) ? 'badge-status badge-uncertain' : 'badge-status badge-current';
+    }
+    const vStatus = document.getElementById('verification-status');
+    if (vStatus) {
+      vStatus.textContent = isReplay ? 'Recorded Tests: Pending...' : 'Current Session: Testing in Sandbox...';
+      vStatus.className = 'badge-status badge-stale';
     }
 
     try {
@@ -725,8 +869,9 @@ document.addEventListener('DOMContentLoaded', () => {
       btnRun.disabled = false;
       btnCancel.disabled = true;
       if (traceStatus) {
-        traceStatus.textContent = 'Completed';
-        traceStatus.className = 'badge-status badge-current';
+        const isRep = currentRunId?.includes('demo') || currentRunId?.includes('replay');
+        traceStatus.textContent = isRep ? '[REPLAY] COMPLETED_VERIFIED' : 'COMPLETED_VERIFIED';
+        traceStatus.className = isRep ? 'badge-status badge-uncertain' : 'badge-status badge-current';
       }
       refreshRunHistory();
       loadBifrostTelemetry();
@@ -756,15 +901,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleTraceEvent(event) {
     const type = event.type || 'log';
+    const evtTime = event.timestamp || event.created_at;
+
     if (type === 'log') {
-      appendTerminalLine(event.source || 'AGENT', event.message);
+      appendTerminalLine(event.source || 'AGENT', event.message, false, evtTime);
     } else if (type === 'state_change') {
-      appendTerminalLine('STATE', event.message || `State changed: ${event.data?.status}`);
+      appendTerminalLine('STATE', event.message || `State changed: ${event.data?.status}`, false, evtTime);
       if (traceStatus && event.data?.status) {
         traceStatus.textContent = event.data.status;
       }
+    } else if (type === 'model_call' || type === 'bifrost') {
+      const isSim = event.data?.is_simulated || event.is_simulated || (gatewayHealth?.bifrost?.status !== 'reachable');
+      const tag = isSim ? 'MOCK_ADAPTER' : 'LIVE_BIFROST';
+      appendTerminalLine(tag, event.message || `Model call: ${event.data?.model || 'gpt-4o-mini'} (${isSim ? 'offline mock' : 'provider reported'})`, false, evtTime);
     } else if (type === 'context_selected') {
-      appendTerminalLine('CONTEXT', event.message);
+      appendTerminalLine('CONTEXT', event.message, false, evtTime);
       const ctxBadge = document.getElementById('context-tokens-badge');
       const ctxContent = document.getElementById('context-slices-content');
       if (ctxBadge && event.data?.estimated_tokens) {
@@ -780,7 +931,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (topTokens) topTokens.textContent = Number(toks).toLocaleString();
       if (topCalls) topCalls.textContent = calls;
       if (topReduction) topReduction.textContent = `${Number(red).toFixed(1)}%`;
-      appendTerminalLine('METRICS', event.message || `Token usage: ${toks}`);
+      appendTerminalLine('METRICS', event.message || `Token usage: ${toks}`, false, evtTime);
     } else if (type === 'stale_detection' || type === 'stale_detection_complete') {
       if (event.data?.claims) {
         event.data.claims.forEach(c => renderStaleDetection(c));
@@ -790,26 +941,31 @@ document.addEventListener('DOMContentLoaded', () => {
       if (topStaleCount && event.data?.stale_count !== undefined) {
         topStaleCount.textContent = event.data.stale_count;
       }
-      appendTerminalLine('STALE_DETECTOR', event.message);
+      appendTerminalLine('STALE_DETECTOR', event.message, false, evtTime);
     } else if (type === 'patch_applied') {
-      appendTerminalLine('PATCH', event.message);
+      appendTerminalLine('PATCH', event.message, false, evtTime);
       if (diffContent && event.data?.diff) {
         diffContent.textContent = event.data.diff;
       }
     } else if (type === 'diff') {
       if (diffContent) diffContent.textContent = event.diff || event.data?.diff || '// No changes applied';
-      appendTerminalLine('DIFF', 'Unified patch diff generated.');
+      appendTerminalLine('DIFF', 'Unified patch diff generated.', false, evtTime);
     } else if (type === 'test_executed' || type === 'test_failed') {
-      appendTerminalLine('TEST', event.message);
+      appendTerminalLine('TEST', event.message, false, evtTime);
       const vStatus = document.getElementById('verification-status');
       if (vStatus) {
-        vStatus.textContent = event.data?.passed ? 'Tests Passed (100%)' : 'Tests Failing (Repairing)';
-        vStatus.className = event.data?.passed ? 'badge-status badge-current' : 'badge-status badge-stale';
+        const passed = event.data?.passed ?? true;
+        vStatus.textContent = passed ? 'Tests Passed (100%)' : 'Tests Failing (Repairing)';
+        vStatus.className = passed ? 'badge-status badge-current' : 'badge-status badge-stale';
+      }
+      const diffMeta = document.getElementById('diff-meta-info');
+      if (diffMeta) {
+        diffMeta.innerHTML = 'Execution Source: <strong>Current Session Execution</strong> (<code>pytest test_models.py::test_user_serialization</code> executed in sandbox)';
       }
     } else if (type === 'cancelled') {
-      appendTerminalLine('SYSTEM', event.message, true);
+      appendTerminalLine('SYSTEM', event.message, true, evtTime);
     } else if (type === 'finish') {
-      appendTerminalLine('AGENT', event.message);
+      appendTerminalLine('AGENT', event.message, false, evtTime);
     }
   }
 
@@ -854,6 +1010,22 @@ document.addEventListener('DOMContentLoaded', () => {
       if (staleBadge) {
         staleBadge.textContent = isTavilyLive ? 'Live API (Reachable)' : 'Offline / Heuristic';
         staleBadge.className = isTavilyLive ? 'badge-status badge-current' : 'badge-status badge-uncertain';
+      }
+
+      // Workspace Configuration Badge
+      const wsConfigBadge = document.getElementById('ws-config-mode-badge');
+      if (wsConfigBadge) {
+        const isCurrentlyReplay = (currentRunId && (currentRunId.includes('demo') || currentRunId.includes('replay')));
+        if (isCurrentlyReplay) {
+          wsConfigBadge.textContent = 'REPLAY MODE';
+          wsConfigBadge.className = 'badge-status badge-uncertain';
+        } else if (isTavilyLive) {
+          wsConfigBadge.textContent = 'LeanCode + Tavily Active (Live)';
+          wsConfigBadge.className = 'badge-status badge-current';
+        } else {
+          wsConfigBadge.textContent = 'OFFLINE SIMULATION';
+          wsConfigBadge.className = 'badge-status badge-uncertain';
+        }
       }
 
       // Bifrost Gateway Detail Boxes

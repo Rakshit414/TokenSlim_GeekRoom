@@ -423,18 +423,21 @@ async def get_bifrost_telemetry():
     call_list = [dict(c) for c in calls]
     stats_dict = dict(stats) if stats else {}
 
+    is_bifrost_live = (os.getenv("PROBE_BIFROST_LIVE", "0") == "1")
     rate_card = [
-        {"model": "gpt-4o-mini", "provider": "OpenAI / Bifrost", "input_cost_per_1m": 0.150, "output_cost_per_1m": 0.600, "status": "Active Default"},
-        {"model": "gpt-4o", "provider": "OpenAI / Bifrost", "input_cost_per_1m": 2.500, "output_cost_per_1m": 10.000, "status": "Available"},
-        {"model": "claude-3-5-sonnet", "provider": "Anthropic / Bifrost", "input_cost_per_1m": 3.000, "output_cost_per_1m": 15.000, "status": "Available"},
-        {"model": "gemini-1.5-pro", "provider": "Google / Bifrost", "input_cost_per_1m": 1.250, "output_cost_per_1m": 5.000, "status": "Available"}
+        {"model": "gpt-4o-mini", "provider": "OpenAI / Bifrost", "input_cost_per_1m": 0.150, "output_cost_per_1m": 0.600, "status": "Active Default (Live)" if is_bifrost_live else "Configured Default (Reference)"},
+        {"model": "gpt-4o", "provider": "OpenAI / Bifrost", "input_cost_per_1m": 2.500, "output_cost_per_1m": 10.000, "status": "Catalogue Route (Reference)"},
+        {"model": "claude-3-5-sonnet", "provider": "Anthropic / Bifrost", "input_cost_per_1m": 3.000, "output_cost_per_1m": 15.000, "status": "Catalogue Route (Reference)"},
+        {"model": "gemini-1.5-pro", "provider": "Google / Bifrost", "input_cost_per_1m": 1.250, "output_cost_per_1m": 5.000, "status": "Catalogue Route (Reference)"}
     ]
 
     return {
         "gateway": {
             "endpoint": bifrost_url,
             "default_model": model_name,
-            "probe_enabled": os.getenv("PROBE_BIFROST_LIVE", "0") == "1",
+            "probe_enabled": is_bifrost_live,
+            "connectivity": "reachable" if is_bifrost_live else "not_verified",
+            "pricing_type": "Configured Reference Pricing (USD per 1M tokens)",
             "routing_policy": "Bifrost Primary -> Local Fallback Mock"
         },
         "stats": {

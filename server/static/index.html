@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TokenSlim — Autonomous Token-Efficient Coding Agent</title>
-  <link rel="stylesheet" href="/static/style.css?v=3.0">
+  <link rel="stylesheet" href="/static/style.css?v=3.1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -71,20 +71,21 @@
           <h1 class="view-heading" id="view-title">Coding Workspace</h1>
         </div>
         <div class="top-bar-metrics">
+          <span id="top-metrics-source-badge" class="badge-status badge-uncertain" style="font-size: 11px; margin-right: 4px;">[REPLAY METRICS]</span>
           <div class="metric-pill">
-            <span class="label">Tokens Used</span>
+            <span class="label" id="top-tokens-label">Tokens (Replay / Est)</span>
             <span class="value" id="top-tokens">237</span>
           </div>
           <div class="metric-pill highlight">
-            <span class="label">Reduction</span>
+            <span class="label" id="top-reduction-label">Context Reduction</span>
             <span class="value" id="top-reduction">42.5%</span>
           </div>
           <div class="metric-pill">
-            <span class="label">Bifrost Calls</span>
+            <span class="label" id="top-calls-label">Calls (Mock / Replay)</span>
             <span class="value" id="top-calls">1</span>
           </div>
           <div class="metric-pill">
-            <span class="label">Stale Detections</span>
+            <span class="label" id="top-stale-label">Stale Claims (Offline)</span>
             <span class="value" id="top-stale-count">1</span>
           </div>
         </div>
@@ -102,7 +103,7 @@
             <div class="panel-header">
               <div class="panel-title">Task Specification & Repository Scope</div>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <span class="badge-status badge-current">LeanCode + Tavily Active</span>
+                <span id="ws-config-mode-badge" class="badge-status badge-uncertain">OFFLINE SIMULATION</span>
                 <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
               </div>
             </div>
@@ -219,7 +220,8 @@
             <div class="panel-header">
               <div class="panel-title">Autonomous Execution Trace</div>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <span id="trace-status" class="badge-status badge-current">Completed</span>
+                <span id="trace-source-badge" class="badge-status badge-uncertain">RECORDED REPLAY</span>
+                <span id="trace-status" class="badge-status badge-uncertain">[REPLAY] COMPLETED_VERIFIED</span>
                 <button type="button" id="btn-trace-replay" class="btn btn-sm btn-secondary">Replay Stream</button>
                 <button type="button" id="btn-trace-clear" class="btn btn-sm btn-secondary">Clear</button>
                 <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
@@ -236,7 +238,7 @@
 
               <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--cream-text-muted); flex-wrap: wrap; gap: 8px;">
                 <div>Transport: <strong>Server-Sent Events (SSE)</strong> via <code>/api/runs/{run_id}/events</code> | Last-Event-ID recovery supported</div>
-                <div>Status: <strong style="color: var(--navy);">Sequential telemetry verified</strong></div>
+                <div>Source: <strong id="trace-telemetry-source" style="color: var(--navy);">Recorded Replay Fixture (Preserved Timestamps)</strong></div>
               </div>
             </div>
           </section>
@@ -303,7 +305,8 @@
             <div class="panel-header">
               <div class="panel-title">Minimal Unified Diff & Test Verification</div>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <span id="verification-status" class="badge-status badge-current">Tests Passed (100%)</span>
+                <span id="diff-source-badge" class="badge-status badge-uncertain">RECORDED TRACE</span>
+                <span id="verification-status" class="badge-status badge-uncertain">Recorded Tests: Passed (100%)</span>
                 <button type="button" class="btn btn-sm btn-secondary panel-toggle">Collapse</button>
               </div>
             </div>
@@ -312,8 +315,8 @@
                 Atomic search-and-replace patch applied character-for-character to the isolated sandbox, verified with subprocess test execution:
               </p>
               <pre id="diff-content" class="code-editor" style="padding: 14px; min-height: 240px; max-height: 480px; overflow-y: auto;">// Minimal patches and unified diffs generated by TokenSlim will appear here.</pre>
-              <div style="margin-top: 10px; font-size: 11px; color: var(--cream-text-muted);">
-                Command: <code>pytest test_models.py::test_user_serialization</code> | Verification: <strong>1 passed in 0.18s</strong> | Exit code: <strong>0</strong>
+              <div id="diff-meta-info" style="margin-top: 10px; font-size: 11px; color: var(--cream-text-muted);">
+                Execution Source: <strong>Recorded Replay Fixture</strong> (<code>pytest test_models.py::test_user_serialization</code> verified in trace recording) | <em>Tests were not executed in the current session.</em>
               </div>
             </div>
           </section>
@@ -465,8 +468,11 @@
 
               <!-- Bifrost Multi-Model Rate Card Table -->
               <div style="margin-bottom: 18px;">
-                <div style="font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase; margin-bottom: 8px;">
-                  Bifrost Model Catalog & Rate Card
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                  <div style="font-size: 12px; font-weight: 700; color: var(--navy); text-transform: uppercase;">
+                    Reference Model Catalogue & Configured Pricing
+                  </div>
+                  <span style="font-size: 11px; color: var(--cream-text-muted);">Gateway Connectivity: <strong id="bifrost-catalogue-status-text" style="color: var(--coral);">Unverified / Offline</strong> (Pricing shown for configured reference)</span>
                 </div>
                 <div class="table-container">
                   <table class="data-table">
@@ -474,9 +480,9 @@
                       <tr>
                         <th>Model Identifier</th>
                         <th>Provider Route</th>
-                        <th>Prompt Price (/1M)</th>
-                        <th>Completion Price (/1M)</th>
-                        <th>Gateway Status</th>
+                        <th>Prompt Ref Price (/1M)</th>
+                        <th>Completion Ref Price (/1M)</th>
+                        <th>Catalogue Status</th>
                       </tr>
                     </thead>
                     <tbody id="bifrost-rate-card-body">
@@ -485,28 +491,28 @@
                         <td>OpenAI / Bifrost</td>
                         <td>$0.150</td>
                         <td>$0.600</td>
-                        <td><span class="badge-status badge-current">Active Default</span></td>
+                        <td><span class="badge-status badge-uncertain">Configured Default (Reference)</span></td>
                       </tr>
                       <tr>
                         <td><strong>gpt-4o</strong></td>
                         <td>OpenAI / Bifrost</td>
                         <td>$2.500</td>
                         <td>$10.000</td>
-                        <td><span class="badge-status badge-uncertain">Available</span></td>
+                        <td><span class="badge-status badge-uncertain">Catalogue Entry (Reference)</span></td>
                       </tr>
                       <tr>
                         <td><strong>claude-3-5-sonnet</strong></td>
                         <td>Anthropic / Bifrost</td>
                         <td>$3.000</td>
                         <td>$15.000</td>
-                        <td><span class="badge-status badge-uncertain">Available</span></td>
+                        <td><span class="badge-status badge-uncertain">Catalogue Entry (Reference)</span></td>
                       </tr>
                       <tr>
                         <td><strong>gemini-1.5-pro</strong></td>
                         <td>Google / Bifrost</td>
                         <td>$1.250</td>
                         <td>$5.000</td>
-                        <td><span class="badge-status badge-uncertain">Available</span></td>
+                        <td><span class="badge-status badge-uncertain">Catalogue Entry (Reference)</span></td>
                       </tr>
                     </tbody>
                   </table>
@@ -554,6 +560,6 @@
     </main>
   </div>
 
-  <script src="/static/app.js?v=3.0"></script>
+  <script src="/static/app.js?v=3.1"></script>
 </body>
 </html>
