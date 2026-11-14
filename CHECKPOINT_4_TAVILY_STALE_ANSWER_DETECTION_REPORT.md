@@ -126,13 +126,16 @@ To prevent web noise from unverified blogs or forums, searches are constrained t
 
 ---
 
-## 6. Example Verified Cases
+## 6. Demonstrated Test Fixture Cases [SIMULATED TEST FIXTURES]
 
-### Case 1: STALE Claim (Pydantic v2 Deprecation)
+> [!NOTE] Provenance Transparency:
+> Because live external Tavily connectivity was not established on the execution host, the cases below represent **deterministic mock test fixtures** executed in `tests/test_stale_detector.py`. They demonstrate pipeline behavior and classification logic, but do NOT represent live web retrievals or prove that external URLs were actively fetched during this turn. All simulation flags (`is_simulated = True`) are preserved.
+
+### Case 1: STALE Claim (Pydantic v2 Deprecation) [SIMULATED TEST FIXTURE]
 - **Claim:** `"Call user.dict() to serialize Pydantic model"`
-- **Classification:** `STALE` (Confidence: 0.94)
-- **Official Source:** `https://docs.pydantic.dev/latest/migration/#model-methods`
-- **Retrieved Excerpt:** `"The .dict() method is deprecated in Pydantic V2 and superseded by .model_dump(). It will be removed in future releases."`
+- **Classification:** `STALE` (Heuristic Evidence Score: 0.94)
+- **Simulated Source URL:** `https://docs.pydantic.dev/latest/migration/#model-methods`
+- **Mock Fixture Excerpt:** `"[MOCK] The .dict() method is deprecated in Pydantic V2 and superseded by .model_dump(). It will be removed in future releases."`
 - **Recommended Correction:** `"Replace deprecated .dict() method with .model_dump() in Pydantic v2."`
 - **Suggested Patch:**
   ```diff
@@ -140,18 +143,29 @@ To prevent web noise from unverified blogs or forums, searches are constrained t
   + return model.model_dump()
   ```
 
-### Case 2: CURRENT Claim (Pydantic v2 Validation)
+### Case 2: CURRENT Claim (Pydantic v2 Validation) [SIMULATED TEST FIXTURE]
 - **Claim:** `"Use BaseModel.model_validate(data) for parsing inputs in Pydantic v2"`
-- **Classification:** `CURRENT` (Confidence: 0.88)
-- **Official Source:** `https://docs.pydantic.dev/latest/concepts/models/`
-- **Retrieved Excerpt:** `"BaseModel.model_validate(obj) is the current recommended approach in Pydantic V2 to validate data."`
+- **Classification:** `CURRENT` (Heuristic Evidence Score: 0.88)
+- **Simulated Source URL:** `https://docs.pydantic.dev/latest/concepts/models/`
+- **Mock Fixture Excerpt:** `"[MOCK] BaseModel.model_validate(obj) is the current recommended approach in Pydantic V2 to validate data."`
 - **Correction:** `None`
 
-### Case 3: UNCERTAIN Claim (No Supporting Documentation)
+### Case 3: UNCERTAIN Claim (Missing Evidence) [SIMULATED TEST FIXTURE]
 - **Claim:** `"Hypothetical unknown function obscure_tool.process()"`
-- **Classification:** `UNCERTAIN` (Confidence: 0.0)
+- **Classification:** `UNCERTAIN` (Heuristic Evidence Score: 0.0)
 - **Evidence Count:** 0
 - **Reasoning:** `"No documentation evidence retrieved from search provider. Preserved as UNCERTAIN without drawing unsupported conclusions."`
+
+### 6.1 Heuristic Evidence Scoring Methodology
+The `confidence` metric is an **empirical heuristic evidence score** (scale 0.0 to 1.0) derived from:
+- Keyword presence in documentation excerpts (e.g., explicit deprecation markers add a 0.70 baseline).
+- Search result relevance scores reported by the provider (weighted by 0.25).
+- Zero-evidence fallback (strictly 0.0).
+
+**Key Invariants:**
+1. It is a deterministic heuristic indicator of signal strength, NOT a statistical probability.
+2. A high score never overrides missing or contradictory evidence; conflicting excerpts explicitly clamp the classification to `UNCERTAIN`.
+3. If no evidence items exist, the score is pinned to `0.0`.
 
 ---
 
