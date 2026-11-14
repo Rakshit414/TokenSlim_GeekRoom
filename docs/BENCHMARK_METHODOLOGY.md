@@ -32,16 +32,21 @@ All values below reflect the single authoritative benchmark run recorded in `ben
 | :--- | :---: | :---: | :---: | :---: |
 | **Tasks Evaluated** | 12 | 12 | 12 | — |
 | **Tasks Passed** | 12 | 12 | 12 | 0 |
-| **Pass Rate** | 100.0% | 100.0% | 100.0% | 0.0% |
+| **Pass Rate** | 100.0%* | 100.0%* | 100.0%* | 0.0% |
 | **Simulated Context Tokens** | **11,431** | **7,847** | **7,847** | **-3,584 (-31.4%)** |
 | **Simulated Generation Tokens** | 1,200 | 1,200 | 1,200 | 0 (0.0%) |
 | **Total Simulated Tokens** | **12,631** | **9,047** | **9,047** | **-3,584 (-28.4%)** |
 | **Provider-Reported Tokens** | `None` | `None` | `None` | Gateway unconfigured |
 | **Average Iterations** | 1.0 | 1.0 | 1.0 | 0.0 |
 | **Average Duration (seconds)**| 1.22s | 1.19s | 1.17s | Benchmark execution time |
-| **Tavily Searches Executed** | 0 | 0 | **6** | +6 searches |
-| **Stale Syntax Flagged** | 0 | 0 | **6** | +6 detections |
+| **Tavily Searches Executed** | 0 | 0 | **6** | +6 searches (offline simulation) |
+| **Stale Syntax Flagged** | 0 | 0 | **6** | 6 stale claims flagged via simulated/offline evidence** |
 | **Context Reduction Rate** | 0.0% | **31.4%** | **31.4%** | **+31.4%** |
+
+> [!IMPORTANT]
+> **Deterministic Harness Attribution:**  
+> \* The 12/12 (100.0%) benchmark pass rate belongs strictly to the deterministic offline verification harness and its mock patch generator. It is **not evidence of live LLM model performance**.  
+> \*\* The six deprecation cases represent six stale claims flagged using simulated/offline evidence, and the deterministic benchmark repair process generated the corresponding corrections rather than live external Tavily queries.
 
 > **Accounting Reconciliation Note:** Previous preliminary checkpoint reports cited Naive baseline context totals between 11,433 and 11,436 tokens. This minor variation ($\pm 2$ to $5$ tokens) was caused by operating system line-ending normalization differences (Windows `CRLF` vs POSIX `LF`) across local git checkouts impacting character-based token heuristics (`len(text) // 4`). The clean rerun recorded in `benchmark/results.json` establishes **11,431** context tokens as the verified benchmark figure, yielding an identical **31.4%** context reduction ($31.353\% \approx 31.4\%$).
 

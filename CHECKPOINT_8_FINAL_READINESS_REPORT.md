@@ -15,8 +15,8 @@
 TokenSlim is an autonomous software engineering agent built to solve real-world coding defects with token efficiency, atomic patch generation, and proactive deprecated-API detection.
 
 This final report presents the evidence-backed completion of all requirements from **Checkpoint 0 through Checkpoint 8**:
-- **AST Slicing Context Reduction:** Evaluated across a 12-task benchmark suite, reducing prompt context tokens by **31.4%** compared to full-file dumping while preserving a 100% test pass rate.
-- **Tavily Stale-Answer Detection:** Flags outdated library syntax (e.g. Pydantic v1 `.dict()` $\to$ v2 `.model_dump()`), retrieves migration documentation, and generates actionable repair directives.
+- **AST Slicing Context Reduction:** Evaluated across a 12-task benchmark suite, reducing prompt context tokens by **31.4%** compared to full-file dumping. The 12/12 pass rate belongs strictly to the deterministic offline harness and is not evidence of live LLM performance.
+- **Tavily Stale-Answer Detection:** Flags outdated library syntax (e.g. Pydantic v1 `.dict()` $\to$ v2 `.model_dump()`); in the offline benchmark suite, six stale claims were flagged using simulated/offline evidence, and the deterministic benchmark repair process generated the corresponding corrections rather than live external API queries.
 - **Security & Workspace Isolation:** Clones target codebases to ephemeral directories (`%TEMP%\tokenslim_workspaces\`), protects original repositories from unapproved modification, restricts commands to permitted executables (`python`, `pytest`), prevents command injection, and terminates child process trees.
 - **Accounting Integrity:** Categorizes metrics into provider-reported usage, local heuristic estimates, and simulated tokens. Audited pricing entries reflect verified vendor rates in `USD per 1,000,000 tokens`.
 
@@ -212,15 +212,20 @@ From a clean rerun executed on **2026-11-14 10:14:35 UTC** across all 12 tasks i
 | Metric | Naive Baseline | LeanCode (AST Slices) | LeanCode + Tavily | Impact / Delta |
 | :--- | :---: | :---: | :---: | :---: |
 | **Tasks Evaluated** | 12 | 12 | 12 | — |
-| **Tasks Verified** | 12 | 12 | 12 | 100% Pass Rate |
+| **Tasks Verified** | 12 | 12 | 12 | 100.0%* (Deterministic Offline Harness) |
 | **Simulated Context Tokens** | **11,431** | **7,847** | **7,847** | **-3,584 (-31.4%)** |
 | **Simulated Output Tokens** | 1,200 | 1,200 | 1,200 | 0.0% |
 | **Total Simulated Tokens** | **12,631** | **9,047** | **9,047** | **-3,584 (-28.4%)** |
 | **Provider-Reported Usage** | `None` | `None` | `None` | Gateway unconfigured |
 | **Average Iterations** | 1.0 | 1.0 | 1.0 | Immediate convergence |
 | **Average Duration (seconds)**| 1.22s | 1.19s | 1.17s | Benchmark execution time |
-| **Tavily Searches Executed** | 0 | 0 | **6** | +6 auxiliary searches |
-| **Stale Syntax Flagged** | 0 | 0 | **6** | +6 deprecations corrected |
+| **Tavily Searches Executed** | 0 | 0 | **6** | +6 auxiliary searches (simulated) |
+| **Stale Syntax Flagged** | 0 | 0 | **6** | 6 stale claims flagged via simulated/offline evidence** |
+
+> [!IMPORTANT]
+> **Deterministic Harness Attribution:**  
+> \* The 12/12 (100.0%) benchmark pass rate belongs strictly to the deterministic offline verification harness and its mock patch generator. It is **not evidence of live LLM model performance**.  
+> \*\* The six deprecation cases represent six stale claims flagged using simulated/offline evidence, and the deterministic benchmark repair process generated the corresponding corrections rather than live external Tavily queries.
 
 ### Reconciliation of Historical Baseline Context Figures:
 Earlier preliminary reports recorded baseline context totals between 11,433 and 11,436 tokens. This minor deviation ($\pm 2$ to $5$ tokens out of 11,000+) was caused by Windows `CRLF` vs POSIX `LF` line endings across local git file checkouts influencing character-based heuristics (`len(text) // 4`). The clean rerun recorded in `benchmark/results.json` establishes **11,431** context tokens as the verified benchmark figure, yielding an identical **31.4%** context reduction ($31.353\% \approx 31.4\%$).
@@ -283,7 +288,7 @@ Every deliverable required by the project plan and review directives exists and 
 | **CP 3: Live Gateway Connectivity**| Direct network probe to Bifrost proxy | **Not verified** (Gateway unconfigured) | **BLOCKED (Documented)** |
 | **CP 4: Tavily Stale-Answer Detection**| `agent/stale_detector.py` | **Tested** (Heuristic scoring & API) | **PASSED** |
 | **CP 4: Live Tavily Connectivity** | Direct network probe to Tavily API | **Not verified** (Key unconfigured) | **BLOCKED (Documented)** |
-| **CP 5: 3-Way Benchmark Suite** | `benchmark/runner.py`, `benchmark/results.json` | **Simulated / Replay only** (Deterministic harness) | **PASSED** |
+| **CP 5: 3-Way Benchmark Suite** | `benchmark/runner.py`, `benchmark/results.json` | **Simulated / Replay only** (Deterministic harness: 12/12 pass rate belongs to offline harness, 6 stale claims flagged via simulated evidence) | **PASSED** |
 | **CP 6: Run Lifecycle & SSE Streaming**| `server/app.py`, `server/events.py` | **Tested** (Last-Event-ID reconnection) | **PASSED** |
 | **CP 7: Workspace Sandboxing & Limits**| `agent/workspace.py`, `agent/repository.py` | **Tested** (Traversal & size limits) | **PASSED** |
 | **CP 7: Process Tree Termination** | `agent/verification.py` (`kill_process_tree`) | **Tested** (Child processes killed) | **PASSED** |

@@ -153,9 +153,12 @@ Execute the 12-task benchmark across all three configurations:
 ### Benchmark Summary:
 | Configuration | Context Strategy | Tasks | Pass Rate | Context Tokens | Context Reduction |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Naive Baseline** | Full-file concatenation | 12 | 100.0% | 11,431 | Baseline (0.0%) |
-| **LeanCode** | Selective AST Context | 12 | 100.0% | 7,847 | **-31.4%** |
-| **LeanCode + Tavily** | Selective AST + Stale Check | 12 | 100.0% | 7,847 | **-31.4% (6 Stale Flagged)** |
+| **Naive Baseline** | Full-file concatenation | 12 | 100.0%* | 11,431 | Baseline (0.0%) |
+| **LeanCode** | Selective AST Context | 12 | 100.0%* | 7,847 | **-31.4%** |
+| **LeanCode + Tavily** | Selective AST + Stale Check | 12 | 100.0%* | 7,847 | **-31.4% (6 Stale Flagged\*\*)** |
+
+*\* The 12/12 (100.0%) benchmark pass rate belongs strictly to the deterministic offline verification harness and is not evidence of live LLM performance.*  
+*\*\* Six stale claims were flagged using simulated/offline evidence, and the deterministic benchmark repair process generated the corresponding corrections rather than live external API queries.*
 
 Detailed methodology and token accounting formulas are documented in [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md).
 
