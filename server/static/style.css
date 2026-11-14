@@ -514,3 +514,30 @@ body {
 .data-table tr:hover {
   background-color: var(--cream-surface-muted);
 }
+
+
+/* Navigation and section usability fixes */
+.workspace-canvas > [id] { scroll-margin-top: 18px; }
+.gateway-detail {
+  min-height: 42px; padding: 10px 12px; border: 1px solid var(--cream-border);
+  border-radius: var(--radius-sm); background: var(--cream-surface); color: var(--navy);
+  font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere;
+}
+.gateway-note { margin-top: 8px; color: var(--cream-text-muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .app-shell { min-width: 0; }
+  .sidebar { width: 190px; }
+  .top-bar { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .top-bar-metrics { flex-wrap: wrap; gap: 8px; }
+  .workspace-canvas { padding: 14px; }
+  .grid-2col { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .sidebar { width: 58px; }
+  .sidebar-header { justify-content: center; padding: 14px 6px; }
+  .sidebar-header > div, .nav-item span:last-child, .sidebar-footer { display: none; }
+  .nav-menu { padding: 12px 6px; }
+  .nav-item { justify-content: center; padding: 12px 4px; }
+  .top-bar { padding: 12px; }
+  .metric-pill { padding: 4px 6px; }
+}
