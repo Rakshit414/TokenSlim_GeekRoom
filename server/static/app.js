@@ -427,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const catStatus = document.getElementById('bifrost-catalogue-status-text');
       if (catStatus) {
-        catStatus.textContent = isLive ? 'Reachable (Live)' : 'Unverified / Offline (Pricing shown for reference)';
+        catStatus.textContent = isLive ? 'Reachable (Live)' : 'Unverified / Offline';
         catStatus.style.color = isLive ? 'var(--status-current)' : 'var(--coral)';
       }
 
@@ -1026,6 +1026,14 @@ document.addEventListener('DOMContentLoaded', () => {
           wsConfigBadge.textContent = 'OFFLINE SIMULATION';
           wsConfigBadge.className = 'badge-status badge-uncertain';
         }
+      }
+
+      // Configuration Mode Dropdown Label
+      const optLeancodeTavily = document.querySelector('#select-config option[value="leancode_tavily"]');
+      if (optLeancodeTavily) {
+        optLeancodeTavily.textContent = isTavilyLive ?
+          'LeanCode + Tavily (Complete TokenSlim - Live API)' :
+          'LeanCode + Tavily (Replay Demonstration / Offline Simulation)';
       }
 
       // Bifrost Gateway Detail Boxes
