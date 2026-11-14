@@ -98,10 +98,37 @@ class PatchEngine:
         return blocks
 
     def apply_block(self, block: SearchReplaceBlock) -> PatchResult:
-        """Apply a single search-and-replace block with strict validation."""
-        target_path = (self.workspace_root / block.file_path).resolve()
+        """Apply a single search-and-replace block with strict boundary and integrity validation."""
+        # 1. Path traversal and workspace boundary verification
+        try:
+            target_path = (self.workspace_root / block.file_path).resolve()
+            if not target_path.is_relative_to(self.workspace_root):
+                return PatchResult(
+                    success=False,
+                    file_path=block.file_path,
+                    error_message=f"Security violation: path traversal detected outside workspace: {block.file_path}"
+                )
+        except (ValueError, Exception):
+            return PatchResult(
+                success=False,
+                file_path=block.file_path,
+                error_message=f"Security violation: invalid path traversal attempted: {block.file_path}"
+            )
 
-        # 1. Target file existence check
+        # Check for symlink escaping workspace boundary
+        if target_path.is_symlink():
+            try:
+                real_target = target_path.resolve()
+                if not real_target.is_relative_to(self.workspace_root):
+                    return PatchResult(
+                        success=False,
+                        file_path=block.file_path,
+                        error_message=f"Security violation: symlink points outside workspace: {block.file_path}"
+                    )
+            except Exception:
+                pass
+
+        # 2. Target file existence check
         if not target_path.exists():
             return PatchResult(
                 success=False,

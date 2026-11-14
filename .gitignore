@@ -38,3 +38,4 @@ Thumbs.db
 # Traces & ephemeral run outputs
 /traces/temp_*
 /benchmark/workspaces/
+scratch/

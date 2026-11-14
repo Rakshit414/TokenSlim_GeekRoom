@@ -32,6 +32,11 @@ DEFAULT_EXCLUDED_EXTENSIONS: Set[str] = {
     ".tar", ".gz", ".db", ".sqlite", ".sqlite3", ".woff", ".woff2"
 }
 
+# Resource limit thresholds for safe scanning
+MAX_FILE_BYTES: int = 500 * 1024  # 500 KB limit per file
+MAX_SCAN_BYTES: int = 20 * 1024 * 1024  # 20 MB total scan limit
+MAX_FILES_COUNT: int = 1000  # Max total files scanned
+
 class FunctionDef(BaseModel):
     name: str
     signature: str
@@ -133,7 +138,9 @@ class RepositoryScanner:
         repo_path: str,
         exclude_dirs: Optional[Set[str]] = None,
         exclude_extensions: Optional[Set[str]] = None,
-        max_file_size_bytes: int = 1024 * 1024  # 1MB limit per file
+        max_file_size_bytes: int = 500 * 1024,  # 500KB limit per individual file
+        max_repo_bytes: int = 20 * 1024 * 1024,  # 20MB limit total scanned repo
+        max_total_files: int = 1000  # Max files to scan to prevent exhaustion
     ):
         self.root_path = Path(repo_path).resolve()
         self.exclude_dirs = set(DEFAULT_EXCLUDED_DIRS)
@@ -143,6 +150,8 @@ class RepositoryScanner:
         if exclude_extensions:
             self.exclude_extensions.update(exclude_extensions)
         self.max_file_size_bytes = max_file_size_bytes
+        self.max_repo_bytes = max_repo_bytes
+        self.max_total_files = max_total_files
 
     def is_binary_file(self, file_path: Path) -> bool:
         """Heuristic check to detect binary files safely."""
@@ -160,9 +169,10 @@ class RepositoryScanner:
             return True
 
     def scan(self) -> RepositoryMap:
-        """Scan repository and build a lightweight structural RepositoryMap."""
+        """Scan repository safely and build a lightweight structural RepositoryMap."""
         files_map: Dict[str, FileMetadata] = {}
         internal_modules: Set[str] = set()
+        total_scanned_bytes = 0
 
         if not self.root_path.exists():
             return RepositoryMap(root_path=str(self.root_path))
@@ -175,11 +185,38 @@ class RepositoryScanner:
             rel_dir = Path(root).relative_to(self.root_path)
 
             for file_name in files:
+                if len(files_map) >= self.max_total_files:
+                    break
+
                 file_ext = os.path.splitext(file_name)[1].lower()
                 if file_ext in self.exclude_extensions:
                     continue
 
                 full_path = Path(root) / file_name
+
+                # Symlink escape protection: ensure target resolves within root_path
+                if full_path.is_symlink():
+                    try:
+                        resolved_target = full_path.resolve()
+                        if not resolved_target.is_relative_to(self.root_path):
+                            continue
+                    except Exception:
+                        continue
+
+                try:
+                    file_size = full_path.stat().st_size
+                except Exception:
+                    file_size = 0
+
+                # Skip files exceeding individual file size limit (500KB)
+                if file_size > self.max_file_size_bytes:
+                    continue
+
+                # Enforce cumulative repository size limit (20MB)
+                if total_scanned_bytes + file_size > self.max_repo_bytes:
+                    raise ValueError(f"Repository scan exceeds maximum allowed limit of {self.max_repo_bytes} bytes.")
+                total_scanned_bytes += file_size
+
                 rel_path = str((rel_dir / file_name).as_posix())
 
                 # Track internal module names
@@ -188,12 +225,14 @@ class RepositoryScanner:
                     if mod_name.endswith(".__init__"):
                         mod_name = mod_name[:-9]
                     internal_modules.add(mod_name)
-                    # Also record top-level package/module name
                     top_mod = mod_name.split(".")[0]
                     internal_modules.add(top_mod)
 
                 meta = self._analyze_file(full_path, rel_path, file_ext)
                 files_map[rel_path] = meta
+
+            if total_scanned_bytes >= self.max_repo_bytes or len(files_map) >= self.max_total_files:
+                break
 
         total_lines = sum(f.line_count for f in files_map.values())
         total_py = sum(1 for f in files_map.values() if f.language == "python")

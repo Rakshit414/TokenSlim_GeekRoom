@@ -25,8 +25,35 @@ class TestExecutionResult(BaseModel):
     timed_out: bool = False
     cancelled: bool = False
 
+def is_process_alive(pid: int) -> bool:
+    """Check if a process is still actively running on the operating system."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            exit_code = ctypes.c_ulong()
+            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return exit_code.value == STILL_ACTIVE
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+
 def kill_process_tree(pid: int):
     """Safely terminate a process and all its child processes to prevent process leakage."""
+    if pid <= 0:
+        return
     if sys.platform == "win32":
         try:
             subprocess.run(
@@ -43,7 +70,10 @@ def kill_process_tree(pid: int):
             import signal
             os.killpg(os.getpgid(pid), signal.SIGTERM)
         except Exception:
-            pass
+            try:
+                os.kill(pid, 9)
+            except Exception:
+                pass
 
 class TestRunner:
     __test__ = False
@@ -80,20 +110,33 @@ class TestRunner:
         """Execute tests in workspace and return concise, actionable results."""
         timeout_sec = timeout or self.default_timeout_seconds
 
-        # Build test command
+        # Build safe test command
+        shell_execution = False
         if test_command:
-            cmd = test_command
+            if any(op in test_command for op in ("&&", "||", ";", "|", ">", "<")):
+                cmd = test_command
+                shell_execution = True
+            else:
+                import shlex
+                try:
+                    tokens = shlex.split(test_command, posix=(sys.platform != "win32"))
+                    cmd = [t.strip('"\'') for t in tokens]
+                except Exception:
+                    cmd = test_command
+                    shell_execution = True
         elif target_file:
-            cmd = f'"{self.python_executable}" -m pytest -v "{target_file}"'
+            cmd = [self.python_executable, "-m", "pytest", "-v", str(target_file)]
         else:
-            cmd = f'"{self.python_executable}" -m pytest -v'
+            cmd = [self.python_executable, "-m", "pytest", "-v"]
 
         start_time = time.time()
         self._active_process = None
 
+        cmd_display = cmd if isinstance(cmd, str) else " ".join(cmd)
+
         if self._cancelled:
             return TestExecutionResult(
-                command=cmd,
+                command=cmd_display,
                 exit_code=-3,
                 passed=False,
                 duration_seconds=0.0,
@@ -111,7 +154,7 @@ class TestRunner:
 
             process = subprocess.Popen(
                 cmd,
-                shell=True,
+                shell=shell_execution,
                 cwd=str(self.workspace_dir),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -127,7 +170,7 @@ class TestRunner:
 
             if self._cancelled:
                 return TestExecutionResult(
-                    command=cmd,
+                    command=cmd_display,
                     exit_code=-3,
                     passed=False,
                     duration_seconds=elapsed,
@@ -141,7 +184,7 @@ class TestRunner:
             failing_tests, traceback_excerpt, summary = self._extract_concise_failure(combined_output, exit_code)
 
             return TestExecutionResult(
-                command=cmd,
+                command=cmd_display,
                 exit_code=exit_code,
                 passed=(exit_code == 0),
                 duration_seconds=elapsed,
@@ -165,7 +208,7 @@ class TestRunner:
             self._active_process = None
             elapsed = time.time() - start_time
             return TestExecutionResult(
-                command=cmd,
+                command=cmd_display,
                 exit_code=-1,
                 passed=False,
                 duration_seconds=elapsed,
@@ -177,11 +220,12 @@ class TestRunner:
         except Exception as e:
             elapsed = time.time() - start_time
             return TestExecutionResult(
-                command=cmd,
+                command=cmd_display,
                 exit_code=-2,
                 passed=False,
                 duration_seconds=elapsed,
-                concise_summary=f"Failed to execute test process: {e}",
+                concise_summary=f"FAILED to execute test process: {e}",
+                traceback_excerpt=str(e),
                 executed=False,
                 timed_out=False,
                 cancelled=False

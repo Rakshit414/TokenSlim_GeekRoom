@@ -17,6 +17,7 @@ from agent.verification import TestRunner, TestExecutionResult
 from agent.bifrost_client import BifrostClient, BifrostUsage
 from agent.prompts import SYSTEM_CODING_PROMPT, build_repair_prompt
 from agent.metrics import RunMetricsLedger, ModelCallRecord
+from agent.security import scrub_secrets, sanitize_payload
 from server.database import get_connection, save_run_event, save_execution_trace
 from server.events import event_bus
 
@@ -53,9 +54,11 @@ class AutonomousCodingLoop:
         time_limit_seconds: float = 120.0,
         run_id: Optional[str] = None,
         mock_patch_generator: Optional[Any] = None,
-        stale_detector: Optional[Any] = None
+        stale_detector: Optional[Any] = None,
+        original_workspace_dir: Optional[str] = None
     ):
         self.workspace_dir = Path(workspace_dir).resolve()
+        self.original_workspace_dir = Path(original_workspace_dir).resolve() if original_workspace_dir else self.workspace_dir
         self.task_directive = task_directive
         self.bifrost_client = bifrost_client or BifrostClient()
         self.test_command = test_command
@@ -138,11 +141,13 @@ class AutonomousCodingLoop:
 
     def _record_event(self, event_type: str, message: str, payload: Optional[Dict[str, Any]] = None):
         """Record and broadcast an execution telemetry event with persistent sequential ID."""
+        clean_msg = scrub_secrets(message)
+        clean_payload = sanitize_payload(payload or {})
         event = {
             "run_id": self.run_id,
             "type": event_type,
-            "message": message,
-            "data": payload or {},
+            "message": clean_msg,
+            "data": clean_payload,
             "timestamp": time.time()
         }
 
@@ -455,6 +460,13 @@ class AutonomousCodingLoop:
             self._record_event("test_run", f"Running targeted tests to verify iteration {iteration} patch...")
             test_res = test_runner.run_tests(test_command=self.test_command)
 
+            self._record_event("test_executed", f"Tests {'passed' if test_res.passed else 'failed'}: {test_res.concise_summary}", {
+                "passed": test_res.passed,
+                "summary": test_res.concise_summary,
+                "failing_tests": test_res.failing_tests,
+                "duration": test_res.duration_seconds
+            })
+
             if test_res.passed:
                 # Early Stopping immediately upon passing!
                 tests_passed = True
@@ -523,7 +535,7 @@ class AutonomousCodingLoop:
                     stale_detections_json = excluded.stale_detections_json,
                     diff_text = excluded.diff_text,
                     completed_at = datetime('now')
-            """, (self.run_id, status, self.configuration, str(self.workspace_dir), self.task_directive, json.dumps(self.ledger.to_summary_dict()), json.dumps(self.stale_detections), "\n".join(diffs)))
+            """, (self.run_id, status, self.configuration, str(self.original_workspace_dir), self.task_directive, json.dumps(self.ledger.to_summary_dict()), json.dumps(self.stale_detections), "\n".join(diffs)))
             conn.commit()
             conn.close()
         except Exception:

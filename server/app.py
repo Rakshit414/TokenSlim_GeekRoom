@@ -28,12 +28,16 @@ from server.database import (
 from server.events import event_bus
 from agent.loop import AutonomousCodingLoop, ExecutionSummary
 from agent.stale_detector import StaleAnswerDetector
+from agent.workspace import validate_and_resolve_repo_path, create_isolated_workspace, cleanup_isolated_workspace
+from agent.security import scrub_secrets, sanitize_payload, sanitize_external_doc
 
-# Static asset directory
+# Project root & static asset directory
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# Active loop registry for cancellation
-active_loops: Dict[str, AutonomousCodingLoop] = {}
+# Concurrency limits and active loop registry for cancellation
+MAX_CONCURRENT_RUNS = 4
+active_loops: Dict[str, Any] = {}
 
 # Load environment configuration
 load_dotenv()
@@ -41,6 +45,20 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Mark any orphaned runs from previous server restarts as 'interrupted'
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cursor.execute("""
+            UPDATE runs
+            SET status = 'interrupted', completed_at = ?
+            WHERE status = 'running'
+        """, (now_iso,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
     yield
 
 app = FastAPI(
@@ -152,10 +170,21 @@ async def create_run(request: RunCreateRequest):
     now_iso = datetime.now(timezone.utc).isoformat()
     run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{os.urandom(3).hex()}"
 
-    # Check if target repository exists
-    target_repo = request.repo_path
-    if not Path(target_repo).is_absolute():
-        target_repo = str((Path(__file__).resolve().parent.parent / target_repo).resolve())
+    # Enforce maximum concurrent active runs
+    if len(active_loops) >= MAX_CONCURRENT_RUNS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Maximum concurrent runs limit ({MAX_CONCURRENT_RUNS}) reached. Please wait for an active run to complete."
+        )
+
+    # Validate and safely resolve repository path preventing directory traversal
+    try:
+        target_repo = validate_and_resolve_repo_path(request.repo_path, PROJECT_ROOT)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Sanitize prompt against secret leakage
+    clean_prompt = scrub_secrets(request.prompt or "")
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -166,8 +195,8 @@ async def create_run(request: RunCreateRequest):
         run_id,
         "running",
         request.configuration,
-        request.repo_path,
-        request.prompt,
+        str(target_repo),
+        clean_prompt,
         request.token_budget,
         1 if request.replay else 0,
         json.dumps(TokenMetrics().model_dump()),
@@ -222,10 +251,13 @@ async def create_run(request: RunCreateRequest):
         asyncio.create_task(execute_replay())
         return {"run_id": run_id, "status": "running", "is_replay": True}
 
-    # Live execution loop
+    # Live execution: clone to isolated ephemeral workspace sandbox
+    isolated_ws = create_isolated_workspace(target_repo, prefix=f"run_{run_id[:16]}_")
+
     loop_instance = AutonomousCodingLoop(
-        workspace_dir=target_repo,
-        task_directive=request.prompt or "Analyze repository and repair defects",
+        workspace_dir=str(isolated_ws),
+        original_workspace_dir=str(target_repo),
+        task_directive=clean_prompt or "Analyze repository and repair defects",
         token_budget=request.token_budget or 15000,
         configuration=request.configuration,
         run_id=run_id
@@ -273,6 +305,7 @@ async def create_run(request: RunCreateRequest):
             await event_bus.broadcast(run_id, err_evt)
         finally:
             active_loops.pop(run_id, None)
+            cleanup_isolated_workspace(isolated_ws)
 
     asyncio.create_task(execute_background())
     return {"run_id": run_id, "status": "running", "is_replay": False}
