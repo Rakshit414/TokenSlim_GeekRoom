@@ -1,63 +1,155 @@
 # TokenSlim ⚡
 
-> **Autonomous, Token-Efficient Software Engineering Agent with Stale-Answer Detection**  
-> *Geek Room × HackCulture Global AI Hackathon 2026*  
-> **Track 1:** Bifrost #01 — Autonomous Coding Agent with Gateway Accounting  
-> **Track 2:** Tavily — Stale-Answer Detector for Deprecated APIs & Migration Guidance  
+<div align="center">
+
+**Autonomous, Token-Efficient Software Engineering Agent with Stale-Answer Detection**
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Pytest Passed](https://img.shields.io/badge/tests-106%20passed-success.svg?logo=pytest&logoColor=white)](tests/)
+[![Context Reduction](https://img.shields.io/badge/context%20tokens--31.4%25-brightgreen.svg)](docs/benchmarks/BENCHMARK_METHODOLOGY.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/Render-Live%20Demo-46E3B7.svg?logo=render&logoColor=white)](https://tokenslim-geekroom.onrender.com)
+
+*Built for the Geek Room × HackCulture Global AI Hackathon 2026*  
+**Track 1:** Bifrost Gateway #01 (Model Routing, Telemetry & Granular Token Accounting)  
+**Track 2:** Tavily Stale-Answer Detection (API Deprecation Screening & Migration Guidance)
+
+[Live Application](https://tokenslim-geekroom.onrender.com) • [Documentation Portal](docs/README.md) • [Architecture Guide](docs/architecture/ARCHITECTURE.md) • [Benchmark Suite](docs/benchmarks/BENCHMARK_METHODOLOGY.md)
+
+</div>
+
+---
+
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Core Features](#2-core-features)
+- [3. System Architecture](#3-system-architecture)
+- [4. Application Screenshots](#4-application-screenshots)
+- [5. Benchmark Results & Verification](#5-benchmark-results--verification)
+- [6. Installation & Setup](#6-installation--setup)
+- [7. Environment Configuration](#7-environment-configuration)
+- [8. Running the Application](#8-running-the-application)
+- [9. Running the Automated Tests](#9-running-the-automated-tests)
+- [10. Running the Benchmark Suite](#10-running-the-benchmark-suite)
+- [11. API Overview](#11-api-overview)
+- [12. Security Model & Defensive Controls](#12-security-model--defensive-controls)
+- [13. Operational Limitations & Transparency](#13-operational-limitations--transparency)
+- [14. Repository Structure](#14-repository-structure)
+- [15. License & Acknowledgements](#15-license--acknowledgements)
 
 ---
 
 ## 1. Overview
 
-TokenSlim is an autonomous software engineering agent designed to repair real-world code defects with extreme token efficiency and robust API safety.
+Traditional coding agents routinely struggle with two critical failure modes in real-world code repair:
+1. **Context Bloat:** Concatenating multi-thousand-line source files into prompts for single-function fixes inflates token consumption, hits rate limits, and degrades model reasoning via attention dilution.
+2. **Stale Syntax Hallucinations:** Models trained on historical corpora repeatedly generate deprecated syntax (e.g., Pydantic v1 `.dict()` instead of v2 `.model_dump()`), breaking runtime builds.
 
-While conventional AI coding agents naively concatenate whole repositories into LLM prompts—exhausting context windows, inflating inference costs, and hallucinatively relying on deprecated syntax—TokenSlim introduces:
-
-1. **Selective AST Context Extraction:** Slices repositories down to exact function and class boundaries, reducing prompt context tokens by **31.4%**.
-2. **Tavily Stale-Answer Detection:** Automatically identifies outdated library syntax, retrieves authoritative migration documentation, and guides repairs (e.g. Pydantic v1 `.dict()` $\to$ v2 `.model_dump()`).
-3. **Atomic Patch Engine:** Applies unified search-and-replace blocks character-for-character without regenerating entire files.
-4. **Ephemeral Sandbox Isolation:** Clones repositories into isolated execution directories, protecting host codebases from unapproved changes.
-5. **Rigorous Security Boundaries:** Enforces command allowlists (`python`, `pytest`), blocks shell injection, terminates recursive process trees (`taskkill /F /T /PID`), and sanitizes API credentials.
-6. **Honest Accounting Ledger:** Categorizes provider-reported usage, local estimates, and simulation metrics with auditable vendor pricing.
+**TokenSlim** solves both challenges systematically:
+- **LeanCode AST Context Engine:** Parses Python's native Abstract Syntax Tree to extract only the target function, class, and immediate failure scope, achieving a verified **31.4% context token reduction** (saving 3,584 prompt tokens per 12-task benchmark suite).
+- **Tavily Stale-Answer Detector:** Detects library version assumptions and deprecated API signatures in directives and source code, querying live documentation (or local heuristic simulation) to enrich prompts with verified migration instructions before patch generation.
+- **Bifrost Gateway & Token Ledger:** Targets Bifrost proxy endpoints with graceful fallback to a local deterministic mock adapter, backed by an auditable token ledger that separates provider-reported usage, local estimates (`tiktoken cl100k`), and simulated tokens.
+- **Ephemeral Sandbox & Subprocess Runner:** Applies atomic search-and-replace patches character-for-character inside isolated `%TEMP%` clones and validates them using locked subprocess test runners with process tree termination and credential stripping.
 
 ---
 
-## 2. Key Architecture & Data Flow
+## 2. Core Features
+
+- **Selective AST Context Slicing:** Extracts surgical function and class nodes with explicit `[PARTIAL SLICE]` boundary annotations, preventing truncated snippets from being hallucinated as whole files.
+- **Dual-Mode Deprecation Screening:** Analyzes prompts and code for version-sensitive signatures. Supports live Tavily searches when configured and offline heuristic simulation (`is_simulated = True`) when unconfigured.
+- **Atomic Patch Application:** Enforces `<<<<<<< SEARCH / ======= / >>>>>>> REPLACE` blocks, rejecting ambiguous targets and eliminating dangerous full-file rewrites.
+- **Ephemeral Workspace Isolation:** Clones target repositories into isolated temporary directories; host codebases remain strictly immutable.
+- **Defensive Subprocess Execution:** Executes tests with `shell=False`, restricts binaries to an allowlist (`pytest`, `python`), strips environment credentials, and terminates process trees (`taskkill /F /T /PID`).
+- **Real-Time SSE Telemetry:** Streams execution milestones over Server-Sent Events with native `Last-Event-ID` chronological reconnection recovery.
+- **Deterministic Replay Mode:** Bundles a recorded fixture (`traces/demo_pydantic_v2_migration.json`) demonstrating a full Pydantic v2 migration trace with zero external credentials.
+- **Audited Reference Pricing Catalog:** Calculates cost models based on verified rates ($/1M tokens) across OpenAI, Anthropic, and Google Cloud.
+
+---
+
+## 3. System Architecture
 
 ```mermaid
 graph TD
-    Client["Developer / Web UI"] -->|HTTP / SSE| Server["FastAPI Gateway (server/app.py)"]
-    Server -->|Ephemeral Clone| Sandbox["Isolated Sandbox (agent/workspace.py)"]
-    Sandbox --> Scanner["AST Repository Mapper (agent/repository.py)"]
-    Scanner --> Slicer["Selective Context Slicer (agent/context.py)"]
-    Slicer --> Stale["Tavily Stale-Answer Detector (agent/stale_detector.py)"]
+    User["Developer / Web Browser"] -->|HTTP / SSE Stream| API["FastAPI Application (server/app.py)"]
+    API -->|Isolated Workspace Clone| Sandbox["Ephemeral Sandbox (agent/workspace.py)"]
+    Sandbox --> Scanner["AST Repository Scanner (agent/repository.py)"]
+    Scanner --> Slicer["LeanCode Context Slicer (agent/context.py)"]
+    Slicer --> Stale["Tavily Stale Detector (agent/stale_detector.py)"]
     Stale --> Loop["Autonomous Coding Loop (agent/loop.py)"]
-    Loop -->|Prompt| Bifrost["Bifrost Gateway Client (agent/bifrost_client.py)"]
-    Bifrost -->|Search/Replace Patch| Edits["Patch Engine (agent/edits.py)"]
-    Edits --> Sandbox
-    Loop -->|Run Tests| Verification["Secure Test Runner (agent/verification.py)"]
-    Verification -->|Pass / Fail Excerpts| Loop
-    Loop -->|Telemetry Events| EventBus["Event Bus & Reconnection SSE (server/events.py)"]
-    Loop -->|Granular Usage| Ledger["Token Accounting Ledger (agent/metrics.py)"]
-    EventBus --> SQLite[("SQLite WAL Database (server/database.py)")]
-    Ledger --> SQLite
-    EventBus --> Client
+    Loop -->|Targeted Prompt & AST Slices| Bifrost["Bifrost Gateway Client (agent/bifrost_client.py)"]
+    Bifrost -->|Search/Replace Patch| Patch["Patch Engine (agent/edits.py)"]
+    Patch -->|Apply Diff| Sandbox
+    Loop -->|Run Tests| Runner["Secure Test Runner (agent/verification.py)"]
+    Runner -->|Pass/Fail Excerpt| Loop
+    Loop -->|Telemetry Events| Events["Event Bus & SSE Reconnect (server/events.py)"]
+    Loop -->|Token Accounting| Ledger["Token Ledger & Rates (agent/metrics.py)"]
+    Events --> DB[("SQLite Database - WAL Mode (server/database.py)")]
+    Ledger --> DB
+    Events --> User
 ```
+
+*For complete component specifications and data flow details, see [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md).*
 
 ---
 
-## 3. Quick Start & Installation
+## 4. Application Screenshots
+
+The TokenSlim web interface is a responsive single-page application built with Vanilla HTML5, CSS, and JavaScript.
+
+| View | Screenshot | Description |
+| :--- | :---: | :--- |
+| **Coding Workspace** | ![Coding Workspace](presentation/assets/01-workspace.png) | Task configuration, repository scope, AST Slices Inspector, and run controls. |
+| **Execution Trace** | ![Execution Trace](presentation/assets/02-execution-trace.png) | Chronological SSE telemetry stream displaying milestones, baseline tests, and AST parsing. |
+| **Stale-Answer Detector** | ![Stale Detector](presentation/assets/03-stale-detector.png) | Deprecation detection dashboard showing Pydantic v1 vs v2 flags, evidence, and replacement rules. |
+| **Diff & Verification** | ![Diff & Verification](presentation/assets/04-diff-verification.png) | Atomic search/replace unified diff viewer with isolated subprocess `pytest` verification results. |
+| **Benchmark Dashboard** | ![Benchmark Dashboard](presentation/assets/05-benchmark-dashboard.png) | 3-way benchmark evaluation comparing Naive, LeanCode, and LeanCode + Tavily configurations. |
+| **Bifrost Gateway** | ![Bifrost Gateway](presentation/assets/06-bifrost-gateway.png) | Gateway connectivity status, model catalog, reference pricing table, and token call ledger. |
+
+---
+
+## 5. Benchmark Results & Verification
+
+The authoritative benchmark evaluates **12 deterministic software engineering repair tasks** across three agent configurations.
+
+*Authoritative Source: [`benchmark/results.json`](benchmark/results.json) | Evaluated Model Label: `gpt-4o-mini`*
+
+| Configuration | Context Strategy | Tasks | Harness Pass Rate | Context Tokens | Context Reduction | Total Simulated Tokens | Total Reduction | Stale Claims Flagged |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Config A: Naive Baseline** | Full-file concatenation | 12 | 100.0%* | 11,431 | Baseline (0.0%) | 12,631 | Baseline (0.0%) | 0 |
+| **Config B: LeanCode** | Selective AST Context | 12 | 100.0%* | 7,847 | **-31.4% (-3,584)** | 9,047 | **-28.4% (-3,584)** | 0 |
+| **Config C: LeanCode + Tavily** | Selective AST + Stale Check | 12 | 100.0%* | 7,847 | **-31.4% (-3,584)** | 9,047 | **-28.4% (-3,584)** | **6 (simulated)\*\*** |
+
+### Essential Benchmark Disclosures
+1. **Context vs Total Token Reductions:**
+   - **Context Token Reduction:** Slashed prompt context from 11,431 to 7,847 tokens (**31.4% reduction**, 3,584 context tokens spared).
+   - **Total Simulated Spend Reduction:** Total simulated tokens (including 1,200 generation tokens) dropped from 12,631 to 9,047 (**28.4% reduction**).
+   - These two metrics measure distinct parts of the pipeline and are maintained separately.
+2. **Deterministic Harness Attribution (\*):** The 12/12 (100.0%) pass rate belongs strictly to the **deterministic offline verification harness** and its mock patch generator. It is **not** evidence of live LLM model repair accuracy.
+3. **Simulated Deprecation Flags (\*\*):** The 6 flagged cases were detected and repaired using **simulated/offline heuristic evidence** in the benchmark harness, not live external Tavily queries.
+4. **Token Parity Between Config B and C:** Config B and Config C report identical token counts (7,847 context / 9,047 total) because Tavily search queries run out-of-band and are not dumped into the code prompt. The stale detector injects a single concise guidance line, keeping extracted AST context tokens identical.
+
+*For complete benchmark accounting formulas and task definitions, see [docs/benchmarks/BENCHMARK_METHODOLOGY.md](docs/benchmarks/BENCHMARK_METHODOLOGY.md).*
+
+---
+
+## 6. Installation & Setup
 
 ### Prerequisites
-- Python 3.10+ (Developed and verified on Python 3.13.5 Windows 11 / POSIX compatible)
+- Python 3.11, 3.12, or 3.13 (Verified on Python 3.13.5 Windows 11 and POSIX)
 - PowerShell (Windows) or Bash (Linux / macOS)
+- Git
 
-### 1. Clone & Set Up Virtual Environment
+### 1. Clone the Repository
 ```bash
-git clone https://github.com/geekroom/tokenslim.git
-cd tokenslim
+git clone https://github.com/Rakshit414/TokenSlim_GeekRoom.git
+cd TokenSlim_GeekRoom
+```
 
-# Create and activate virtual environment
+### 2. Create and Activate Virtual Environment
+```bash
+# Create virtual environment
 python -m venv .venv
 
 # Windows PowerShell:
@@ -65,171 +157,203 @@ python -m venv .venv
 
 # Linux / macOS:
 source .venv/bin/activate
+```
 
-# Install dependencies
+### 3. Install Dependencies
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Environment Configuration
-Copy `.env.example` to `.env` (or configure inline):
+---
+
+## 7. Environment Configuration
+
+Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Default configuration variables in `.env`:
 ```env
 # Bifrost AI Gateway (Track 1)
 BIFROST_BASE_URL=http://localhost:8080/v1
+BIFROST_API_KEY=bifrost-local-key
 MODEL_NAME=gpt-4o-mini
 
 # Tavily Search API (Track 2)
-TAVILY_API_KEY=tvly-your-tavily-api-key
+TAVILY_API_KEY=
 
-# Execution mode: 0 for offline simulation/preflight; 1 for live network probes
+# Server Configuration
+SERVER_HOST=127.0.0.1
+SERVER_PORT=8000
+DATABASE_URL=sqlite:///./tokenslim.db
+
+# Live Network Probes (0 = offline simulation fallback; 1 = attempt live probes)
 PROBE_BIFROST_LIVE=0
 PROBE_TAVILY_LIVE=0
 ```
 
-> **Note on Offline Evaluation:** TokenSlim runs 100% out-of-the-box in deterministic replay and simulation mode without external API keys or Docker daemons.
+> **Zero-Dependency Evaluation:** TokenSlim runs out-of-the-box in deterministic replay and simulation mode without requiring live external API keys or Docker services.
 
 ---
 
-## 4. Running the Application
+## 8. Running the Application
 
-### Start the FastAPI Server & Web UI
-```powershell
+### Start the Local Server
+```bash
+# Windows PowerShell:
 .\.venv\Scripts\python.exe -m uvicorn server.app:app --host 127.0.0.1 --port 8000
+
+# Linux / macOS:
+python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
 ```
+
 Open your browser to: **`http://localhost:8000`**
 
-### Available Interface Features:
-- **Autonomous Coding Workspace:** Submit repair tasks, configure token budgets, and inspect terminal telemetry.
-- **Pre-recorded Replay Demo:** Instant zero-credential demonstration of Pydantic migration.
-- **Tavily Stale-Answer Evidence Inspector:** Live and simulated evidence cards with authoritative documentation URLs.
-- **Diff & Verification Viewer:** Side-by-side unified diffs with live test pass/fail indicators.
-- **Benchmark Dashboard:** 3-way configuration comparisons with context reduction metrics.
-- **Run History & Telemetry Replay:** Inspect historical runs or replay sequential SSE streams.
-
----
-
-## 5. Running Tests & Verification
-
-TokenSlim maintains an exhaustive automated test suite with **103 tests passing**:
-
-```powershell
-# Run entire test suite
-.\.venv\Scripts\pytest.exe -v
-
-# Run targeted reliability and security tests
-.\.venv\Scripts\pytest.exe -v tests/test_reliability_and_security.py
-
-# Run stale detector tests
-.\.venv\Scripts\pytest.exe -v tests/test_stale_detector.py
+### Running via Docker Compose (Optional)
+```bash
+docker-compose up --build
 ```
 
-### Test Suite Coverage:
-- `test_preflight.py`: Project layout, design system tokens, database schema, health endpoints.
-- `test_repository.py`: AST parsing, binary exclusion, syntax error resilience, symbol lookups.
-- `test_context.py`: Budget limits, slice deduplication, partial function annotations.
-- `test_edits.py`: Search/replace block matching, path traversal protection, stale block rejection.
-- `test_verification.py`: Process timeout, output truncation, failure extraction.
-- `test_bifrost_accounting.py`: Provider usage parsing, cached token rates, pricing cross-check.
-- `test_stale_detector.py`: Deprecation detection, confidence scoring, search budget enforcement.
-- `test_agent_loop.py`: Iterative repair, early stopping on test pass, budget enforcement, cancellation.
-- `test_benchmark_and_integration.py`: 3-way benchmark harness, reproducibility, error recovery.
-- `test_server_and_streaming.py`: SSE event contracts, Last-Event-ID reconnection, trace replay.
-- `test_reliability_and_security.py`: Workspace isolation, command allowlist, process-tree termination, secret scrubbing.
+---
+
+## 9. Running the Automated Tests
+
+TokenSlim includes an automated test suite with **106 passing tests** across 11 test modules:
+
+```bash
+# Run full test suite
+pytest -v
+
+# Run targeted security and reliability tests
+pytest -v tests/test_reliability_and_security.py
+
+# Run stale detector tests
+pytest -v tests/test_stale_detector.py
+```
+
+### Test Suite Structure:
+- `tests/test_preflight.py`: Environment structure, database initialization, design tokens, health endpoints.
+- `tests/test_repository.py`: AST parsing, symbol tables, binary exclusion, syntax error resilience.
+- `tests/test_context.py`: AST slicing, token/line budgets, `[PARTIAL SLICE]` boundary annotations.
+- `tests/test_edits.py`: Search/replace block matching, path traversal guards, atomic rollback.
+- `tests/test_verification.py`: Subprocess execution, allowlist enforcement, timeout handling.
+- `tests/test_bifrost_accounting.py`: Gateway fallback, token ledger taxonomy, rate card calculations.
+- `tests/test_stale_detector.py`: Deprecation detection, confidence scoring, prompt injection.
+- `tests/test_agent_loop.py`: Iterative OODA cycle, early stopping on test pass, cancellation.
+- `tests/test_benchmark_and_integration.py`: 3-way benchmark runner, reproducibility, error recovery.
+- `tests/test_server_and_streaming.py`: SSE streaming, `Last-Event-ID` chronological reconnection, trace replay.
+- `tests/test_reliability_and_security.py`: Workspace sandboxing, `shell=False` disarmament, tree process kill (`taskkill`), credential scrubbing.
 
 ---
 
-## 6. Running the Benchmark Suite
+## 10. Running the Benchmark Suite
 
 Execute the 12-task benchmark across all three configurations:
 
-```powershell
-.\.venv\Scripts\python.exe -m benchmark.runner
+```bash
+# Run the reproducible benchmark suite
+python -m benchmark.runner
 ```
 
-### Benchmark Summary:
-| Configuration | Context Strategy | Tasks | Pass Rate | Context Tokens | Context Reduction |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **Naive Baseline** | Full-file concatenation | 12 | 100.0%* | 11,431 | Baseline (0.0%) |
-| **LeanCode** | Selective AST Context | 12 | 100.0%* | 7,847 | **-31.4%** |
-| **LeanCode + Tavily** | Selective AST + Stale Check | 12 | 100.0%* | 7,847 | **-31.4% (6 Stale Flagged\*\*)** |
-
-*\* The 12/12 (100.0%) benchmark pass rate belongs strictly to the deterministic offline verification harness and is not evidence of live LLM performance.*  
-*\*\* Six stale claims were flagged using simulated/offline evidence, and the deterministic benchmark repair process generated the corresponding corrections rather than live external API queries.*
-
-Detailed methodology and token accounting formulas are documented in [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md).
+Results are stored in [`benchmark/results.json`](benchmark/results.json) and rendered live in the web dashboard.
 
 ---
 
-## 7. API Reference
+## 11. API Overview
 
 | Endpoint | Method | Description |
 | :--- | :---: | :--- |
-| `/api/health` | `GET` | System health check (Bifrost, Tavily, SQLite status). |
+| `/api/health` | `GET` | Health status for SQLite, Bifrost gateway connectivity, and Tavily status. |
 | `/api/runs` | `GET` | List recent autonomous coding runs with execution summaries. |
-| `/api/runs` | `POST` | Create and execute an autonomous run (or replay trace). Rate-limited to 4 concurrent runs. |
-| `/api/runs/{run_id}` | `GET` | Retrieve run details, configuration, and final diff. |
+| `/api/runs` | `POST` | Create and execute an autonomous run or trigger a replay trace. Rate-limited to 4 concurrent runs. |
+| `/api/runs/{run_id}` | `GET` | Retrieve run details, active configuration, and final patch diff. |
 | `/api/runs/{run_id}/events` | `GET` | Server-Sent Events (SSE) telemetry stream with `Last-Event-ID` recovery. |
-| `/api/runs/{run_id}/cancel` | `POST` | Abort active loop and terminate child subprocess tree. |
+| `/api/runs/{run_id}/cancel` | `POST` | Abort active loop and terminate child subprocess process tree. |
 | `/api/runs/{run_id}/replay` | `POST` | Replay persisted event stream sequentially. |
 | `/api/runs/{run_id}/trace` | `GET` | Retrieve complete structured execution trace. |
 | `/api/benchmarks` | `GET` | Retrieve authoritative 12-task benchmark dataset. |
-| `/api/stale-detections` | `GET` | List all flagged deprecations and authoritative evidence. |
-| `/api/stale-detection/runs` | `POST` | Run on-demand stale syntax verification on arbitrary claims. |
-| `/api/bifrost/telemetry` | `GET` | Retrieve Bifrost gateway connectivity, rate card catalog, and recent model calls ledger. |
+| `/api/stale-detections` | `GET` | List all flagged deprecations and authoritative migration evidence. |
+| `/api/stale-detection/runs` | `POST` | Run on-demand stale syntax verification on arbitrary code snippets. |
+| `/api/bifrost/telemetry` | `GET` | Retrieve Bifrost gateway connectivity, reference pricing catalog, and model call ledger. |
 
 ---
 
-## 8. Security & Reliability
+## 12. Security Model & Defensive Controls
 
-TokenSlim implements comprehensive containment safeguards:
-- **Workspace Sandboxing:** Clones repositories to isolated ephemeral folders; original repos are strictly read-only.
-- **Path Traversal Rejection:** Both API and patch engines reject `../` directory traversal attempts.
-- **Command Allowlist:** Subprocesses execute strictly with `shell=False` and are restricted to `python` and `pytest`.
-- **Process Tree Killing:** Recursively terminates process trees on cancellation or timeout to prevent orphan leakage.
-- **Secret Scrubbing:** Automatically scrubs API keys (`sk-*`, `tvly-*`, `ghp_*`, `Bearer`) from logs, database records, and SSE events.
-- **Prompt Injection Defense:** External documentation is disarmed against role overrides (`SYSTEM:`, `USER:`, `ASSISTANT:`).
+TokenSlim enforces multi-layer containment:
+- **Zero Repo Mutation:** Clones repositories into ephemeral directories (`%TEMP%\tokenslim_workspaces\run_<id>_\`). The original repository remains untouched.
+- **Subprocess Disarmament:** Subprocesses execute strictly with `shell=False`, preventing shell command-chaining attacks (`&&`, `||`, `;`, `|`).
+- **Binary Allowlist:** Permitted execution is restricted strictly to approved test runners (`pytest`, `python`).
+- **Process Tree Termination:** Cross-platform tree termination (`taskkill /F /T /PID` on Windows, `os.killpg` on POSIX) prevents orphan worker leakage.
+- **Credential Sanitization:** Strips environment variables containing secrets (`sk-*`, `tvly-*`, `ghp_*`, `Bearer`) before launching test subprocesses.
+- **Path Traversal Guards:** Resolves canonical paths (`os.path.realpath`) to block directory traversal escapes (`../../`) and external symlinks.
 
-For complete security specifications, consult [docs/SECURITY.md](docs/SECURITY.md).
+*For complete security specifications, see [docs/security/SECURITY.md](docs/security/SECURITY.md).*
 
 ---
 
-## 9. Project Directory Structure
+## 13. Operational Limitations & Transparency
+
+In the spirit of technical honesty:
+- **Bifrost Live Gateway Connectivity:** Upstream live Bifrost proxy connectivity is **unverified** on the public Render deployment. The deployed demo operates via local deterministic mock fallback and recorded trace replay.
+- **Tavily API Credentials:** Live Tavily API credentials are **unconfigured** on the public host. The stale-answer detector operates via its offline heuristic simulation fallback (`is_simulated = True`).
+- **Replay Mode Fixture:** The Pydantic v2 migration demonstration in the web UI is a **pre-recorded execution fixture** (`traces/demo_pydantic_v2_migration.json`), preserving original event timestamps, rather than a live model run.
+- **Benchmark Interpretation:** The 12/12 pass rate belongs strictly to the **deterministic offline verification harness** using mock patches; it does not measure live LLM model generation.
+- **Language Scope:** AST parsing currently utilizes Python's standard library `ast` module and is scoped to Python codebases.
+
+---
+
+## 14. Repository Structure
 
 ```text
-TokenSlim/
-├── agent/                       # Core autonomous coding agent
-│   ├── bifrost_client.py        # Bifrost AI Gateway integration & fallback adapter
-│   ├── context.py               # Selective AST context extractor & budgeter
-│   ├── docs_check.py            # External documentation search interface
-│   ├── edits.py                 # Atomic search-and-replace patch engine
-│   ├── loop.py                  # Autonomous repair loop with early stopping
-│   ├── metrics.py               # Granular token accounting ledger & pricing catalog
-│   ├── prompts.py               # Token-efficient system and repair prompts
-│   ├── repository.py            # Lightweight AST repository scanner
-│   ├── security.py              # Secret scrubber & prompt-injection disarmer
-│   ├── stale_detector.py        # Tavily stale-answer detector
-│   ├── verification.py          # Secure test runner with process-tree termination
-│   └── workspace.py             # Ephemeral workspace isolation manager
-├── benchmark/                   # 12-task benchmark evaluation suite
-│   ├── runner.py                # Benchmark execution engine
-│   ├── results.json             # Authoritative reconciled benchmark results
-│   └── tasks/                   # 12 real-world defect and migration tasks
-├── docs/                        # Technical specifications & documentation
-│   ├── ARCHITECTURE.md          # Complete architectural specification & data flow
-│   ├── BENCHMARK_METHODOLOGY.md # Benchmark design & token accounting methodology
-│   ├── DEMO_GUIDE.md            # Replay vs Live demo walkthrough
-│   └── SECURITY.md              # Security model, command allowlist & threat mitigations
-├── server/                      # FastAPI application & web interface
-│   ├── app.py                   # FastAPI routes, lifecycle & concurrency limits
-│   ├── database.py              # SQLite WAL database & schema migrations
-│   ├── events.py                # In-memory pub/sub event bus
-│   ├── schemas.py               # Pydantic request/response models
-│   └── static/                  # Responsive web dashboard (Navy/Cream/Coral)
-├── tests/                       # Automated test suite (100 passing tests)
+TokenSlim_GeekRoom/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                     # Continuous integration workflow (Python 3.11-3.13)
+├── agent/                             # Autonomous coding engine
+│   ├── bifrost_client.py              # Bifrost gateway client & mock adapter fallback
+│   ├── context.py                     # LeanCode AST selective context extractor
+│   ├── docs_check.py                  # External documentation search interface
+│   ├── edits.py                       # Atomic search-and-replace patch engine
+│   ├── loop.py                        # Autonomous repair loop with early stopping
+│   ├── metrics.py                     # Granular token accounting ledger & pricing catalog
+│   ├── prompts.py                     # Token-efficient system and repair prompts
+│   ├── repository.py                  # Lightweight AST repository scanner
+│   ├── security.py                    # Secret sanitizer & prompt injection defenses
+│   ├── stale_detector.py              # Tavily stale-answer detector
+│   ├── verification.py                # Secure subprocess test runner with tree kill
+│   └── workspace.py                   # Ephemeral workspace sandbox manager
+├── benchmark/                         # 12-task benchmark evaluation suite
+│   ├── runner.py                      # Benchmark execution engine
+│   ├── results.json                   # Authoritative reconciled benchmark results
+│   ├── create_tasks.py                # Benchmark task generator
+│   └── tasks/                         # 12 real-world defect and migration tasks
+├── docs/                              # Technical specifications & documentation
+│   ├── README.md                      # Documentation navigation hub
+│   ├── architecture/
+│   │   └── ARCHITECTURE.md            # System architecture, data flow & event contracts
+│   ├── benchmarks/
+│   │   └── BENCHMARK_METHODOLOGY.md   # Benchmark design & token accounting formulas
+│   ├── guides/
+│   │   └── DEMO_GUIDE.md              # Replay vs Live demo walkthrough
+│   ├── security/
+│   │   └── SECURITY.md                # Security model, command allowlist & threat mitigations
+│   └── development/
+│       └── CHECKPOINT_REPORTS/        # Historical development reports (Checkpoints 0 to 8)
+├── presentation/                      # Hackathon presentation deliverables
+│   ├── Architecture_Diagram.png       # High-res system architecture diagram (1920x1080)
+│   ├── Benchmark_Chart.png            # High-res benchmark comparison chart (1920x1080)
+│   ├── TokenSlim_Presentation_Brief.md# 12-slide AI presentation brief (Kreyato AI)
+│   ├── Slide_Content_and_Speaker_Notes.md # Full slide copy & student speaker notes
+│   └── assets/                        # 6 live desktop screenshots (1440x900)
+├── server/                            # FastAPI backend & web interface
+│   ├── app.py                         # REST API endpoints & lifecycle handlers
+│   ├── database.py                    # SQLite database (WAL mode)
+│   ├── events.py                      # SSE pub/sub event bus with Last-Event-ID
+│   ├── schemas.py                     # Pydantic request/response schemas
+│   └── static/                        # Vanilla HTML5/CSS/JS web dashboard
+├── tests/                             # Automated test suite (106 tests passing)
 │   ├── test_agent_loop.py
 │   ├── test_benchmark_and_integration.py
 │   ├── test_bifrost_accounting.py
@@ -241,17 +365,22 @@ TokenSlim/
 │   ├── test_server_and_streaming.py
 │   ├── test_stale_detector.py
 │   └── test_verification.py
-├── traces/                      # Recorded demo traces
+├── traces/                            # Pre-recorded demo execution traces
 │   └── demo_pydantic_v2_migration.json
-├── requirements.txt             # Python dependencies
-├── pytest.ini                   # Pytest test configuration
-├── README.md                    # Project overview & documentation
-└── CHECKPOINT_8_FINAL_READINESS_REPORT.md # Final engineering report
+├── .env.example                       # Environment configuration template
+├── .gitignore                         # Git ignore configuration
+├── Dockerfile                         # Container build specification
+├── docker-compose.yml                 # Multi-service composition (Bifrost + TokenSlim)
+├── LICENSE                            # MIT License
+├── pytest.ini                         # Pytest configuration
+└── requirements.txt                   # Production and testing dependencies
 ```
 
 ---
 
-## 10. License & Acknowledgements
+## 15. License & Acknowledgements
 
-Developed for the **Geek Room × HackCulture Global AI Hackathon 2026**.  
-Built with FastAPI, Uvicorn, Pydantic, and SQLite. Special thanks to the Bifrost and Tavily teams for sponsoring Track 1 and Track 2.
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+Developed by **Rakshit Jain** for the **Geek Room × HackCulture Global AI Hackathon 2026**.  
+Special thanks to the **Bifrost** and **Tavily** teams for sponsoring Track 1 and Track 2.
