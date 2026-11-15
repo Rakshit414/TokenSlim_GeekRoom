@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use or reference this software, please cite it as below."
+type: software
+authors:
+  - family-names: "Jain"
+    given-names: "Rakshit"
+title: "TokenSlim: Autonomous Token-Efficient Coding Agent with Selective AST Context & Stale-Answer Detection"
+abstract: "Autonomous software engineering agent combining compiler-inspired AST slicing, real-time Tavily stale-answer detection, and granular Bifrost gateway accounting for token-efficient automated code repair."
+version: 0.1.0
+date-released: 2026-11-15
+url: "https://tokenslim-geekroom.onrender.com"
+repository-code: "https://github.com/Rakshit414/TokenSlim_GeekRoom"
+license: MIT
+keywords:
+  - "ai-agents"
+  - "autonomous-coding"
+  - "ast-analysis"
+  - "token-efficiency"
+  - "bifrost-gateway"
+  - "tavily-search"
+  - "stale-detection"
+  - "code-repair"
+  - "fastapi"
+  - "python"
